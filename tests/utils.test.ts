@@ -9,7 +9,12 @@ import {
 	calculateHighlightDistance,
 	calculatePercentage,
 	shouldAllowFlash,
-	calculateScrollDebounceTime
+	calculateScrollDebounceTime,
+	rgbToHsl,
+	hslToRgb,
+	adjustColorForThinBar,
+	detectSoftWrapEnd,
+	type SoftWrapDetectionParams
 } from '../src/utils';
 
 describe('hexToRgb', () => {
@@ -260,5 +265,358 @@ describe('calculateScrollDebounceTime', () => {
 		expect(calculateScrollDebounceTime(4)).toBe(250);
 		expect(calculateScrollDebounceTime(5)).toBe(150);
 		expect(calculateScrollDebounceTime(6)).toBe(150);
+	});
+});
+
+describe('rgbToHsl', () => {
+	it('should convert pure red correctly', () => {
+		const hsl = rgbToHsl(255, 0, 0);
+		expect(hsl.h).toBeCloseTo(0, 1);
+		expect(hsl.s).toBeCloseTo(100, 1);
+		expect(hsl.l).toBeCloseTo(50, 1);
+	});
+
+	it('should convert pure green correctly', () => {
+		const hsl = rgbToHsl(0, 255, 0);
+		expect(hsl.h).toBeCloseTo(120, 1);
+		expect(hsl.s).toBeCloseTo(100, 1);
+		expect(hsl.l).toBeCloseTo(50, 1);
+	});
+
+	it('should convert pure blue correctly', () => {
+		const hsl = rgbToHsl(0, 0, 255);
+		expect(hsl.h).toBeCloseTo(240, 1);
+		expect(hsl.s).toBeCloseTo(100, 1);
+		expect(hsl.l).toBeCloseTo(50, 1);
+	});
+
+	it('should convert white correctly', () => {
+		const hsl = rgbToHsl(255, 255, 255);
+		expect(hsl.s).toBeCloseTo(0, 1);
+		expect(hsl.l).toBeCloseTo(100, 1);
+	});
+
+	it('should convert black correctly', () => {
+		const hsl = rgbToHsl(0, 0, 0);
+		expect(hsl.s).toBeCloseTo(0, 1);
+		expect(hsl.l).toBeCloseTo(0, 1);
+	});
+
+	it('should convert mid-gray correctly', () => {
+		const hsl = rgbToHsl(128, 128, 128);
+		expect(hsl.s).toBeCloseTo(0, 0);
+		expect(hsl.l).toBeCloseTo(50, 0);
+	});
+
+	it('should convert a typical cursor blue correctly', () => {
+		const hsl = rgbToHsl(100, 150, 255);
+		expect(hsl.h).toBeGreaterThan(200);
+		expect(hsl.h).toBeLessThan(250);
+		expect(hsl.l).toBeGreaterThan(60);
+	});
+});
+
+describe('hslToRgb', () => {
+	it('should convert pure red correctly', () => {
+		const rgb = hslToRgb(0, 100, 50);
+		expect(rgb.r).toBe(255);
+		expect(rgb.g).toBe(0);
+		expect(rgb.b).toBe(0);
+	});
+
+	it('should convert pure green correctly', () => {
+		const rgb = hslToRgb(120, 100, 50);
+		expect(rgb.r).toBe(0);
+		expect(rgb.g).toBe(255);
+		expect(rgb.b).toBe(0);
+	});
+
+	it('should convert pure blue correctly', () => {
+		const rgb = hslToRgb(240, 100, 50);
+		expect(rgb.r).toBe(0);
+		expect(rgb.g).toBe(0);
+		expect(rgb.b).toBe(255);
+	});
+
+	it('should convert white correctly', () => {
+		const rgb = hslToRgb(0, 0, 100);
+		expect(rgb.r).toBe(255);
+		expect(rgb.g).toBe(255);
+		expect(rgb.b).toBe(255);
+	});
+
+	it('should convert black correctly', () => {
+		const rgb = hslToRgb(0, 0, 0);
+		expect(rgb.r).toBe(0);
+		expect(rgb.g).toBe(0);
+		expect(rgb.b).toBe(0);
+	});
+
+	it('should be approximately the inverse of rgbToHsl', () => {
+		const original = { r: 100, g: 150, b: 200 };
+		const hsl = rgbToHsl(original.r, original.g, original.b);
+		const roundTrip = hslToRgb(hsl.h, hsl.s, hsl.l);
+		expect(roundTrip.r).toBeCloseTo(original.r, 0);
+		expect(roundTrip.g).toBeCloseTo(original.g, 0);
+		expect(roundTrip.b).toBeCloseTo(original.b, 0);
+	});
+});
+
+describe('adjustColorForThinBar', () => {
+	it('should return a darker version of the input color', () => {
+		const original = '#6496ff';
+		const adjusted = adjustColorForThinBar(original);
+		const { r: or, g: og, b: ob } = hexToRgb(original);
+		const { r: ar, g: ag, b: ab } = hexToRgb(adjusted);
+		const origHsl = rgbToHsl(or, og, ob);
+		const adjHsl = rgbToHsl(ar, ag, ab);
+		expect(adjHsl.l).toBeLessThan(origHsl.l);
+	});
+
+	it('should reduce lightness by approximately 12 percentage points', () => {
+		const original = '#6496ff';
+		const adjusted = adjustColorForThinBar(original);
+		const { r: or, g: og, b: ob } = hexToRgb(original);
+		const { r: ar, g: ag, b: ab } = hexToRgb(adjusted);
+		const origHsl = rgbToHsl(or, og, ob);
+		const adjHsl = rgbToHsl(ar, ag, ab);
+		expect(origHsl.l - adjHsl.l).toBeCloseTo(12, 0);
+	});
+
+	it('should preserve hue and saturation', () => {
+		const original = '#6496ff';
+		const adjusted = adjustColorForThinBar(original);
+		const { r: or, g: og, b: ob } = hexToRgb(original);
+		const { r: ar, g: ag, b: ab } = hexToRgb(adjusted);
+		const origHsl = rgbToHsl(or, og, ob);
+		const adjHsl = rgbToHsl(ar, ag, ab);
+		expect(adjHsl.h).toBeCloseTo(origHsl.h, 0);
+		expect(adjHsl.s).toBeCloseTo(origHsl.s, 0);
+	});
+
+	it('should not go below lightness 0 for very dark input colors', () => {
+		const veryDark = '#0a0a0a';
+		const adjusted = adjustColorForThinBar(veryDark);
+		const { r, g, b } = hexToRgb(adjusted);
+		const adjHsl = rgbToHsl(r, g, b);
+		expect(adjHsl.l).toBeGreaterThanOrEqual(0);
+	});
+
+	it('should return a valid hex color string', () => {
+		const adjusted = adjustColorForThinBar('#6496ff');
+		expect(adjusted).toMatch(/^#[0-9a-f]{6}$/i);
+	});
+
+	it('should handle pure white', () => {
+		const adjusted = adjustColorForThinBar('#ffffff');
+		const { r, g, b } = hexToRgb(adjusted);
+		const adjHsl = rgbToHsl(r, g, b);
+		expect(adjHsl.l).toBeCloseTo(88, 0);
+	});
+
+	it('should handle black without going negative', () => {
+		const adjusted = adjustColorForThinBar('#000000');
+		const { r, g, b } = hexToRgb(adjusted);
+		const adjHsl = rgbToHsl(r, g, b);
+		expect(adjHsl.l).toBeCloseTo(0, 0);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// detectSoftWrapEnd tests
+// ---------------------------------------------------------------------------
+
+/** Base params: cursor mid-line on a wrapped line, no special state */
+const baseMidLine: SoftWrapDetectionParams = {
+	lineWrapping: true,
+	isEOL: false,
+	isMidDocLine: true,
+	assoc: 0,
+	endKeyPressedRecently: false,
+	coordsLeftTop: undefined,
+	coordsRightTop: undefined,
+	actualLineHeight: 24
+};
+
+/** Geometry confirming a soft-wrap boundary (positions on different visual rows) */
+const softWrapCoords = { coordsLeftTop: 100, coordsRightTop: 124 }; // 24px apart
+
+/** Geometry confirming a non-boundary (same visual row) */
+const nonBoundaryCoords = { coordsLeftTop: 100, coordsRightTop: 100 };
+
+describe('detectSoftWrapEnd', () => {
+	// -------------------------------------------------------------------------
+	// Bug A: End key at soft-wrap boundary must be detected.
+	// main.ts calls coordsAtPos when assoc < 0 and feeds the geometry here.
+	// -------------------------------------------------------------------------
+
+	it('[Bug A] assoc=-1, soft-wrap geometry → true (primary geometry path)', () => {
+		// Typical: assoc=-1 after End, coordsAtPos confirms different rows
+		expect(detectSoftWrapEnd({
+			...baseMidLine,
+			assoc: -1,
+			endKeyPressedRecently: true,
+			...softWrapCoords
+		})).toBe(true);
+	});
+
+	it('[Bug A] assoc=-1, coords null (pre-paint, endKey=true) → true', () => {
+		// coordsAtPos returned null; fall back to assoc < 0 signal
+		expect(detectSoftWrapEnd({
+			...baseMidLine,
+			assoc: -1,
+			endKeyPressedRecently: true,
+			coordsLeftTop: null,
+			coordsRightTop: null
+		})).toBe(true);
+	});
+
+	it('[Bug A] assoc=-1, coords null, endKey=false → false (endKeyPressedRecently required)', () => {
+		// assoc < 0 alone is NOT sufficient; endKeyPressedRecently is required
+		// because assoc = -1 also appears at soft-wrap starts after →.
+		expect(detectSoftWrapEnd({
+			...baseMidLine,
+			assoc: -1,
+			endKeyPressedRecently: false,
+			coordsLeftTop: null,
+			coordsRightTop: null
+		})).toBe(false);
+	});
+
+	it('[Bug A] assoc=0, endKeyPressedRecently=true, soft-wrap coords → true', () => {
+		// CM6 kept assoc=0 after End; geometry confirms boundary
+		expect(detectSoftWrapEnd({
+			...baseMidLine,
+			assoc: 0,
+			endKeyPressedRecently: true,
+			...softWrapCoords
+		})).toBe(true);
+	});
+
+	it('[Bug A] assoc=0, endKeyPressedRecently=true, coords unavailable → true', () => {
+		// CM6 kept assoc=0 (rare case); no geometry; flag covers it
+		expect(detectSoftWrapEnd({
+			...baseMidLine,
+			assoc: 0,
+			endKeyPressedRecently: true,
+			coordsLeftTop: null,
+			coordsRightTop: null
+		})).toBe(true);
+	});
+
+	// -------------------------------------------------------------------------
+	// Bug B: End → right-arrow must NOT spuriously trigger soft-wrap.
+	// After →, CM6 sets assoc = +1 (rightward move).
+	// main.ts only calls coordsAtPos when assoc < 0, so for assoc=+1 no coords
+	// are fetched. Step 1 (assoc >= 0 && !endKeyPressedRecently) blocks immediately.
+	// -------------------------------------------------------------------------
+
+	it('[Bug B] assoc=1 (→ after End), endKey=false → false', () => {
+		// Normal rightward movement — Step 1 rejects immediately
+		expect(detectSoftWrapEnd({
+			...baseMidLine,
+			assoc: 1,
+			endKeyPressedRecently: false,
+			coordsLeftTop: undefined,
+			coordsRightTop: undefined
+		})).toBe(false);
+	});
+
+	it('[Bug B] assoc=0, endKeyPressedRecently=false, non-boundary coords → false', () => {
+		// Geometry says same row — not a soft-wrap end
+		expect(detectSoftWrapEnd({
+			...baseMidLine,
+			assoc: 0,
+			endKeyPressedRecently: false,
+			...nonBoundaryCoords
+		})).toBe(false);
+	});
+
+	it('[Bug B] assoc=-1, endKey=false → false (soft-wrap start after →, no flag)', () => {
+		// After End → →: capture handler cleared the flag, assoc=-1 at new pos.
+		// Must return false — this directly tests Bug B regression prevention.
+		expect(detectSoftWrapEnd({
+			...baseMidLine,
+			assoc: -1,
+			endKeyPressedRecently: false,
+			coordsLeftTop: undefined,
+			coordsRightTop: undefined
+		})).toBe(false);
+	});
+
+	it('[Bug B] assoc=-1, geometry says same row → false', () => {
+		// assoc=-1 but geometry overrules — positions on same visual row
+		expect(detectSoftWrapEnd({
+			...baseMidLine,
+			assoc: -1,
+			...nonBoundaryCoords
+		})).toBe(false);
+	});
+
+	// -------------------------------------------------------------------------
+	// Guard conditions
+	// -------------------------------------------------------------------------
+
+	it('returns false when isEOL=true', () => {
+		expect(detectSoftWrapEnd({
+			...baseMidLine,
+			isEOL: true,
+			assoc: -1,
+			...softWrapCoords
+		})).toBe(false);
+	});
+
+	it('returns false when lineWrapping=false', () => {
+		expect(detectSoftWrapEnd({
+			...baseMidLine,
+			lineWrapping: false,
+			assoc: -1,
+			...softWrapCoords
+		})).toBe(false);
+	});
+
+	it('returns false when isMidDocLine=false', () => {
+		expect(detectSoftWrapEnd({
+			...baseMidLine,
+			isMidDocLine: false,
+			assoc: -1,
+			...softWrapCoords
+		})).toBe(false);
+	});
+
+	it('returns false when assoc=0 and endKeyPressedRecently=false', () => {
+		expect(detectSoftWrapEnd({
+			...baseMidLine,
+			assoc: 0,
+			endKeyPressedRecently: false,
+			...softWrapCoords
+		})).toBe(false);
+	});
+
+	// -------------------------------------------------------------------------
+	// Threshold boundary: coords .top difference at 50% of lineHeight
+	// -------------------------------------------------------------------------
+
+	it('returns false when top difference equals threshold (not strictly greater)', () => {
+		// threshold = 24 * 0.5 = 12; difference = 12 → not > 12
+		// (endKeyPressedRecently=true needed to reach the geometry step)
+		expect(detectSoftWrapEnd({
+			...baseMidLine,
+			assoc: -1,
+			endKeyPressedRecently: true,
+			coordsLeftTop: 100,
+			coordsRightTop: 112
+		})).toBe(false);
+	});
+
+	it('returns true when top difference is just above threshold (endKeyPressedRecently=true)', () => {
+		// difference = 13 > 12 → true (endKeyPressedRecently is required to reach geometry)
+		expect(detectSoftWrapEnd({
+			...baseMidLine,
+			assoc: -1,
+			endKeyPressedRecently: true,
+			coordsLeftTop: 100,
+			coordsRightTop: 113
+		})).toBe(true);
 	});
 });

@@ -5,7 +5,7 @@ import { VisibleCursorPluginSettings, DEFAULT_SETTINGS, VisibleCursorSettingTab 
 import { ColorProvider } from './src/services/colorProvider';
 import { FlashScheduler, type FlashState } from './src/services/flashScheduler';
 import { FlashRenderer } from './src/services/flashRenderer';
-import { hexToRgb, adjustColorForThinBar } from './src/utils';
+import { hexToRgb, adjustColorForThinBar, detectSoftWrapEnd } from './src/utils';
 
 class EndOfLineWidget extends WidgetType {
 	constructor(
@@ -120,6 +120,7 @@ export default class VisibleCursorPlugin extends Plugin {
 	private boundStartFence: () => void;
 	private boundEndFenceSoon: () => void;
 	private boundClickEndFence: () => void;
+	private boundKeydownCapture: (e: KeyboardEvent) => void;
 
 	// Services
 	private colorProvider: ColorProvider;
@@ -172,6 +173,30 @@ export default class VisibleCursorPlugin extends Plugin {
 		window.addEventListener('pointerup', this.boundEndFenceSoon, { capture: true });
 		window.addEventListener('pointercancel', this.boundEndFenceSoon, { capture: true });
 		window.addEventListener('click', this.boundClickEndFence, { capture: true });
+
+		// Capture-phase keydown listener: fires BEFORE CM6 processes the key and calls
+		// update(), so our endKeyPressedRecently flag is correctly set/cleared before
+		// buildDecorations reads it.  (EditorView.domEventHandlers fires at bubble phase,
+		// after CM6's internal handlers — too late to gate this flag.)
+		this.boundKeydownCapture = (e: KeyboardEvent) => {
+			if (e.key === 'End') {
+				this.endKeyPressedRecently = true;
+				if (this.endKeyTimer) clearTimeout(this.endKeyTimer);
+				// Clear after 100ms as a safety margin (one rAF is sufficient on fast machines).
+				this.endKeyTimer = setTimeout(() => {
+					this.endKeyPressedRecently = false;
+					this.endKeyTimer = null;
+				}, 100);
+			} else if (this.endKeyPressedRecently) {
+				// Any other key cancels the End-key window immediately.
+				this.endKeyPressedRecently = false;
+				if (this.endKeyTimer) {
+					clearTimeout(this.endKeyTimer);
+					this.endKeyTimer = null;
+				}
+			}
+		};
+		window.addEventListener('keydown', this.boundKeydownCapture, { capture: true });
 	}
 
 	createDecorationPlugin() {
@@ -248,39 +273,31 @@ export default class VisibleCursorPlugin extends Plugin {
 					}
 				} else {
 					const char = view.state.doc.sliceString(pos, pos + 1);
-					let isEOL = char === '\n' || char === '';
-
-					// Detect soft-wrap end: the cursor is visually at the end of a wrapped visual line.
-					//
-					// CM6 sets assoc = -1 when the cursor is placed at a soft-wrap boundary end
-					// (e.g. via the END key on a wrapped line). We trust this directly without any
-					// DOM measurement — coordsAtPos is unreliable during the decoration update()
-					// callback because the DOM hasn't been re-measured yet at that point.
-					//
-					// We also guard against false positives: assoc = -1 can appear at any position,
-					// so we additionally require that:
-					//   1. lineWrapping is enabled (otherwise there are no soft-wrap boundaries), and
-					//   2. pos is NOT at the start of a hard document line (those have '\n' before them
-					//      and are handled by the isEOL branch, or are hard-line starts where assoc=-1
-					//      represents something other than a soft-wrap).
-					//
-					// The endKeyPressedRecently flag covers the rare case where CM lands the cursor
-					// at the soft-wrap boundary but uses assoc = 0 instead of -1.
-					let isSoftWrapEnd = false;
-					if (!isEOL && view.lineWrapping) {
+						let isEOL = char === '\n' || char === '';
+	
+						// Soft-wrap end detection. See detectSoftWrapEnd() in src/utils.ts.
+						//
+						// endKeyPressedRecently is the sole reliable discriminator between a
+						// soft-wrap end and a soft-wrap start: both have assoc = -1 and both
+						// produce different coordsAtPos .top values at the boundary.
+						//
+						// The capture-phase window.keydown handler (registered in onload) sets
+						// endKeyPressedRecently = true when End is pressed and clears it on any
+						// other key — before CM6 processes the keystroke and calls update().
+						// After →, the flag is false by the time buildDecorations runs.
 						const assoc = view.state.selection.main.assoc;
 						const docLine = view.state.doc.lineAt(pos);
-						// Only treat as soft-wrap end if pos is mid-doc-line (not at doc line start)
-						const isMidDocLine = pos > docLine.from;
-						if (isMidDocLine && (assoc < 0 || plugin.endKeyPressedRecently)) {
-							isSoftWrapEnd = true;
-							// Do NOT eagerly clear endKeyPressedRecently here.  CM6 may call
-							// update() more than once per keystroke (e.g. for selection state
-							// vs. cursor-position updates).  Clearing here would cause the flag
-							// to be missed by the cursor-position update that follows.
-							// The 100ms timer in the keydown handler is the sole owner of cleanup.
-						}
-					}
+	
+						const isSoftWrapEnd = detectSoftWrapEnd({
+							lineWrapping: view.lineWrapping,
+							isEOL,
+							isMidDocLine: pos > docLine.from,
+							assoc,
+							endKeyPressedRecently: plugin.endKeyPressedRecently,
+							coordsLeftTop: undefined,
+							coordsRightTop: undefined,
+							actualLineHeight
+						});
 
 					if (isEOL || isSoftWrapEnd) {
 						// For soft-wrap ends use side:-1 so the widget appears at the end of the current
@@ -327,21 +344,6 @@ export default class VisibleCursorPlugin extends Plugin {
 		const plugin = this;
 
 		return EditorView.domEventHandlers({
-			keydown: (event: KeyboardEvent) => {
-				// Track End key presses so the decoration builder can detect when the cursor
-				// landed at a soft-wrap boundary via End (assoc stays 0, not -1, in this case).
-				if (event.key === 'End') {
-					plugin.endKeyPressedRecently = true;
-					if (plugin.endKeyTimer) clearTimeout(plugin.endKeyTimer);
-					// Clear the flag after a short delay (one animation frame is enough, but
-					// use 100ms as a safety margin for slow machines).
-					plugin.endKeyTimer = setTimeout(() => {
-						plugin.endKeyPressedRecently = false;
-						plugin.endKeyTimer = null;
-					}, 100);
-				}
-				return false; // Always let CM6 process the key; we only observe, never consume
-			},
 			scroll: (event: Event, view: EditorView) => {
 				if (!plugin.settings.flashOnWindowScrolls) return false;
 
@@ -688,5 +690,6 @@ export default class VisibleCursorPlugin extends Plugin {
 		window.removeEventListener('pointerup', this.boundEndFenceSoon, { capture: true });
 		window.removeEventListener('pointercancel', this.boundEndFenceSoon, { capture: true });
 		window.removeEventListener('click', this.boundClickEndFence, { capture: true });
+		window.removeEventListener('keydown', this.boundKeydownCapture, { capture: true });
 	}
 }

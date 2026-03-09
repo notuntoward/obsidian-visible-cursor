@@ -231,3 +231,86 @@ export function adjustColorForThinBar(hexColor: string): string {
 	
 	return `#${adjustedRgb.r.toString(16).padStart(2, '0')}${adjustedRgb.g.toString(16).padStart(2, '0')}${adjustedRgb.b.toString(16).padStart(2, '0')}`;
 }
+
+/**
+ * Parameters for soft-wrap-end detection.
+ */
+export interface SoftWrapDetectionParams {
+	/** Whether line wrapping is enabled in the editor */
+	lineWrapping: boolean;
+	/** Whether the character at pos is an end-of-line character (isEOL already true) */
+	isEOL: boolean;
+	/** Whether pos is in the middle of a document line (pos > docLine.from) */
+	isMidDocLine: boolean;
+	/** CM6 selection assoc value (-1, 0, or 1) */
+	assoc: number;
+	/**
+	 * Whether the End key was pressed recently (within the 100ms window).
+	 *
+	 * In main.ts this is managed by a capture-phase window.keydown listener that
+	 * fires BEFORE CM6's bubble-phase handlers process the key and call update().
+	 * This ensures the flag is already set (for End) or cleared (for any other key)
+	 * by the time buildDecorations reads it.
+	 */
+	endKeyPressedRecently: boolean;
+	/**
+	 * The .top coordinate of the position approached from the left (-1 side).
+	 * null means coordsAtPos returned null; undefined means not called or threw.
+	 *
+	 * NOTE: coordsAtPos returns different .top values at BOTH soft-wrap ends AND
+	 * soft-wrap starts, so geometry alone cannot distinguish the two cases.
+	 * main.ts passes undefined here; the field is kept for potential future use.
+	 */
+	coordsLeftTop: number | null | undefined;
+	/**
+	 * The .top coordinate of the position approached from the right (+1 side).
+	 * null means coordsAtPos returned null; undefined means not called or threw.
+	 * See note on coordsLeftTop.
+	 */
+	coordsRightTop: number | null | undefined;
+	/** The actual line height in pixels (used as threshold for coords comparison) */
+	actualLineHeight: number;
+}
+
+/**
+ * Determine whether the cursor is at a soft-wrap visual line end.
+ *
+ * Detection strategy:
+ *
+ * 1. Guard: reject if not mid-line on a wrapped document.
+ * 2. endKeyPressedRecently is the sole reliable discriminator.  CM6 sets assoc = -1
+ *    at BOTH soft-wrap ends (after End) AND soft-wrap starts (after →), and
+ *    coordsAtPos also returns different .top values at both positions — so neither
+ *    assoc nor geometry alone can distinguish the two cases.
+ *
+ *    endKeyPressedRecently is managed by a capture-phase window.keydown handler
+ *    that fires before CM6 processes keystrokes, so it is correctly true when End
+ *    is pressed and false when → is pressed — even if assoc = -1 in both cases.
+ *
+ * 3. Geometry step (authoritative when available): if numeric coords are provided,
+ *    they override the flag.  main.ts passes undefined — reserved for future use.
+ */
+export function detectSoftWrapEnd(params: SoftWrapDetectionParams): boolean {
+	const {
+		lineWrapping, isEOL, isMidDocLine, assoc,
+		endKeyPressedRecently, coordsLeftTop, coordsRightTop, actualLineHeight
+	} = params;
+
+	if (isEOL || !lineWrapping || !isMidDocLine) {
+		return false;
+	}
+
+	// Step 2: endKeyPressedRecently is required (assoc alone is ambiguous)
+	if (!endKeyPressedRecently) {
+		return false;
+	}
+
+	// Step 3: geometry override (authoritative when available)
+	if (typeof coordsLeftTop === 'number' && typeof coordsRightTop === 'number') {
+		return Math.abs(coordsLeftTop - coordsRightTop) > actualLineHeight * 0.5;
+	}
+
+	// endKeyPressedRecently is true and no geometry: trust the flag
+	// (covers both assoc = -1 and assoc = 0 cases after End)
+	return true;
+}
