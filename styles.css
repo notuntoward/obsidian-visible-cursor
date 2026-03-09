@@ -19,35 +19,36 @@
 /* Hide the native Obsidian cursor when custom cursor decorations are present */
 .cm-content:has(.cursor-flash-block-mark),
 .cm-content:has(.cursor-flash-bar),
+.cm-content:has(.cursor-flash-bar-mark),
+.cm-content:has(.cursor-flash-thinbar-mark),
 .cm-line:has(.cursor-flash-block-mark),
-.cm-line:has(.cursor-flash-bar) {
+.cm-line:has(.cursor-flash-bar),
+.cm-line:has(.cursor-flash-bar-mark),
+.cm-line:has(.cursor-flash-thinbar-mark) {
   caret-color: transparent !important;
 }
 
 /* Hide CodeMirror's cursor layer when custom cursor is active */
 .cm-content:has(.cursor-flash-block-mark) .cm-cursorLayer,
-.cm-content:has(.cursor-flash-bar) .cm-cursorLayer {
+.cm-content:has(.cursor-flash-bar) .cm-cursorLayer,
+.cm-content:has(.cursor-flash-bar-mark) .cm-cursorLayer,
+.cm-content:has(.cursor-flash-thinbar-mark) .cm-cursorLayer {
   visibility: hidden !important;
 }
 
 /* Make block cursor overlay click-through too */
 .cursor-flash-block-mark {
   pointer-events: none;
-  contain: paint;
   will-change: opacity, transform;
-  /* Use CSS custom properties for dynamic colors */
-  background-color: var(--cursor-bg) !important;
-  color: var(--cursor-fg) !important;
 }
 
 /* Bar cursor - imitates standard Obsidian cursor with custom color */
+/* NOTE: no contain:paint here because the bar is a zero-width element whose
+   visual bar child overflows - contain:paint would clip it to nothing. */
 .cursor-flash-bar {
   pointer-events: none;
-  contain: paint;
+  overflow: visible;
   will-change: opacity, transform;
-  /* Creates a 3px wide vertical line using background gradient */
-  background: linear-gradient(90deg, var(--cursor-bg) 0px, var(--cursor-bg) 3px, transparent 3px) !important;
-  background-color: transparent !important;
 }
 
 @keyframes flash-char-fade {

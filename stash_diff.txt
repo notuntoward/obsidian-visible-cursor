@@ -1,0 +1,637 @@
+diff --git a/main.ts b/main.ts
+index ba088dc..1cbcfeb 100644
+--- a/main.ts
++++ b/main.ts
+@@ -5,7 +5,7 @@ import { VisibleCursorPluginSettings, DEFAULT_SETTINGS, VisibleCursorSettingTab
+ import { ColorProvider } from './src/services/colorProvider';
+ import { FlashScheduler, type FlashState } from './src/services/flashScheduler';
+ import { FlashRenderer } from './src/services/flashRenderer';
+-import { hexToRgb } from './src/utils';
++import { hexToRgb, adjustColorForThinBar } from './src/utils';
+ 
+ class EndOfLineWidget extends WidgetType {
+ 	constructor(private markerColor: string, private contrastColor: string, private style: 'block' | 'bar' = 'block', private lineHeight?: number) {
+@@ -47,19 +47,261 @@ class BarCursorWidget extends WidgetType {
+ 		super();
+ 	}
+ 	toDOM() {
++		// Use inline-block with zero width so the widget takes no space in the text flow
++		// This prevents word-breaking while still allowing the absolutely-positioned
++		// cursor visual to appear at the correct location.
+ 		const span = document.createElement('span');
+ 		span.className = 'cursor-flash-bar';
+ 		span.style.cssText = `
+ 			display: inline-block;
++			width: 0;
++			height: ${this.lineHeight}px;
++			vertical-align: text-bottom;
++			position: relative;
++			overflow: visible;
++			pointer-events: none;
++		`;
++		const cursor = document.createElement('span');
++		cursor.style.cssText = `
++			position: absolute;
++			left: 0px;
++			top: 0;
+ 			width: 3px;
+ 			height: ${this.lineHeight}px;
+ 			background-color: ${this.markerColor};
+ 			pointer-events: none;
++			z-index: 1;
++		`;
++		span.appendChild(cursor);
++		span.setAttribute('aria-hidden', 'true');
++		return span;
++	}
++}
++
++class IBeamCursorWidget extends WidgetType {
++	constructor(private markerColor: string, private lineHeight: number) {
++		super();
++	}
++	toDOM() {
++		// Use inline-block with zero width so the widget takes no space in the text flow
++		const stemWidth = 2;
++		const capWidth = 6;
++		const capHeight = 2;
++		const capOffset = (capWidth - stemWidth) / 2;
++		const stemHeight = this.lineHeight - 4;
++		const padding = 2;
++		
++		const span = document.createElement('span');
++		span.className = 'cursor-flash-ibeam';
++		span.style.cssText = `
++			display: inline-block;
++			width: 0;
++			height: ${this.lineHeight}px;
+ 			vertical-align: text-bottom;
+ 			position: relative;
+-			margin-left: -1px;
++			overflow: visible;
++			pointer-events: none;
++		`;
++		
++		const container = document.createElement('span');
++		container.style.cssText = `
++			position: absolute;
++			left: -${capOffset}px;
++			top: 0;
++			width: ${capWidth}px;
++			height: ${this.lineHeight}px;
++			pointer-events: none;
++			z-index: 1;
++		`;
++		
++		const stem = document.createElement('div');
++		stem.style.cssText = `
++			position: absolute;
++			left: ${capOffset}px;
++			top: ${padding}px;
++			width: ${stemWidth}px;
++			height: ${stemHeight}px;
++			background-color: ${this.markerColor};
++			pointer-events: none;
++		`;
++		
++		const topCap = document.createElement('div');
++		topCap.style.cssText = `
++			position: absolute;
++			left: 0;
++			top: ${padding}px;
++			width: ${capWidth}px;
++			height: ${capHeight}px;
++			background-color: ${this.markerColor};
++			pointer-events: none;
++		`;
++		
++		const bottomCap = document.createElement('div');
++		bottomCap.style.cssText = `
++			position: absolute;
++			left: 0;
++			bottom: ${padding}px;
++			width: ${capWidth}px;
++			height: ${capHeight}px;
++			background-color: ${this.markerColor};
++			pointer-events: none;
++		`;
++		
++		container.appendChild(stem);
++		container.appendChild(topCap);
++		container.appendChild(bottomCap);
++		span.appendChild(container);
++		span.setAttribute('aria-hidden', 'true');
++		return span;
++	}
++}
++
++class ThinBarCursorWidget extends WidgetType {
++	constructor(private markerColor: string, private lineHeight: number) {
++		super();
++	}
++	toDOM() {
++		// Use inline-block with zero width so the widget takes no space in the text flow
++		const stemWidth = 2;
++		const stemHeight = this.lineHeight - 4;
++		const padding = 2;
++		
++		const span = document.createElement('span');
++		span.className = 'cursor-flash-thinbar';
++		span.style.cssText = `
++			display: inline-block;
++			width: 0;
++			height: ${this.lineHeight}px;
++			vertical-align: text-bottom;
++			position: relative;
++			overflow: visible;
++			pointer-events: none;
++		`;
++		
++		const stem = document.createElement('div');
++		stem.style.cssText = `
++			position: absolute;
++			left: 0;
++			top: ${padding}px;
++			width: ${stemWidth}px;
++			height: ${stemHeight}px;
++			background-color: ${this.markerColor};
++			pointer-events: none;
+ 			z-index: 1;
+ 		`;
++		
++		span.appendChild(stem);
++		span.setAttribute('aria-hidden', 'true');
++		return span;
++	}
++}
++
++class IBeamCursorEOLWidget extends WidgetType {
++	constructor(private markerColor: string, private lineHeight: number) {
++		super();
++	}
++	toDOM() {
++		const container = document.createElement('span');
++		container.className = 'cursor-flash-ibeam';
++		
++		// Calculate dimensions - slightly wider caps at EOL for visibility
++		const stemWidth = 2;
++		const capWidth = 7; // 7-8px wide caps at EOL
++		const capHeight = 2;
++		const capOffset = (capWidth - stemWidth) / 2; // Center caps on stem
++		const stemHeight = this.lineHeight - 4; // Subtract padding from top and bottom
++		const padding = 2; // 2px padding at top and bottom
++		
++		container.style.cssText = `
++			display: inline-block;
++			width: ${capWidth}px;
++			height: ${this.lineHeight}px;
++			position: relative;
++			vertical-align: text-bottom;
++			pointer-events: none;
++			margin-left: -1px;
++		`;
++		
++		// Create the vertical stem
++		const stem = document.createElement('div');
++		stem.style.cssText = `
++			position: absolute;
++			left: ${capOffset}px;
++			top: ${padding}px;
++			width: ${stemWidth}px;
++			height: ${stemHeight}px;
++			background-color: ${this.markerColor};
++			pointer-events: none;
++		`;
++		
++		// Create the top cap
++		const topCap = document.createElement('div');
++		topCap.style.cssText = `
++			position: absolute;
++			left: 0;
++			top: ${padding}px;
++			width: ${capWidth}px;
++			height: ${capHeight}px;
++			background-color: ${this.markerColor};
++			pointer-events: none;
++		`;
++		
++		// Create the bottom cap
++		const bottomCap = document.createElement('div');
++		bottomCap.style.cssText = `
++			position: absolute;
++			left: 0;
++			bottom: ${padding}px;
++			width: ${capWidth}px;
++			height: ${capHeight}px;
++			background-color: ${this.markerColor};
++			pointer-events: none;
++		`;
++		
++		container.appendChild(stem);
++		container.appendChild(topCap);
++		container.appendChild(bottomCap);
++		container.setAttribute('aria-hidden', 'true');
++		return container;
++	}
++}
++
++class ThinBarCursorEOLWidget extends WidgetType {
++	constructor(private markerColor: string, private lineHeight: number) {
++		super();
++	}
++	toDOM() {
++		const span = document.createElement('span');
++		span.className = 'cursor-flash-thinbar';
++		
++		// Thin bar is just a 2px wide vertical line (like i-beam stem without caps)
++		const stemWidth = 2;
++		const stemHeight = this.lineHeight - 4; // Subtract padding from top and bottom
++		const padding = 2; // 2px padding at top and bottom
++		
++		span.style.cssText = `
++			display: inline-block;
++			width: ${stemWidth}px;
++			height: ${this.lineHeight}px;
++			position: relative;
++			vertical-align: text-bottom;
++			pointer-events: none;
++			margin-left: -1px;
++		`;
++		
++		// Create the vertical stem
++		const stem = document.createElement('div');
++		stem.style.cssText = `
++			position: absolute;
++			left: 0;
++			top: ${padding}px;
++			width: ${stemWidth}px;
++			height: ${stemHeight}px;
++			background-color: ${this.markerColor};
++			pointer-events: none;
++		`;
++		
++		span.appendChild(stem);
+ 		span.setAttribute('aria-hidden', 'true');
+ 		return span;
+ 	}
+@@ -167,6 +409,8 @@ export default class VisibleCursorPlugin extends Plugin {
+ 				const pos = view.state.selection.main.head;
+ 				const markerColor = plugin.colorProvider.getColor(plugin.settings).color;
+ 				const contrastColor = plugin.colorProvider.getContrastColor(markerColor);
++				// Adjust color for thin bar to maintain visual weight
++				const thinBarColor = adjustColorForThinBar(markerColor);
+ 				plugin.updateCursorStyles(markerColor, contrastColor);
+ 
+ 				// Get the actual line height from font-size which is more reliable
+@@ -197,28 +441,94 @@ export default class VisibleCursorPlugin extends Plugin {
+ 
+ 				if (pos >= view.state.doc.length) {
+ 					if (view.state.doc.length > 0) {
+-					const widgetStyle = plugin.settings.customCursorStyle === 'bar' ? 'bar' : 'block';
+-						const widget = Decoration.widget({
+-							widget: new EndOfLineWidget(markerColor, contrastColor, widgetStyle, actualLineHeight),
+-							side: 1
+-						});
+-						builder.add(view.state.doc.length, view.state.doc.length, widget);
++						// Handle EOL at document end
++						if (plugin.settings.customCursorStyle === 'ibeam') {
++							const widget = Decoration.widget({
++								widget: new IBeamCursorEOLWidget(markerColor, actualLineHeight),
++								side: 1
++							});
++							builder.add(view.state.doc.length, view.state.doc.length, widget);
++						} else if (plugin.settings.customCursorStyle === 'thinbar') {
++							const widget = Decoration.widget({
++								widget: new ThinBarCursorEOLWidget(thinBarColor, actualLineHeight),
++								side: 1
++							});
++							builder.add(view.state.doc.length, view.state.doc.length, widget);
++						} else {
++							const widgetStyle = plugin.settings.customCursorStyle === 'bar' ? 'bar' : 'block';
++							const widget = Decoration.widget({
++								widget: new EndOfLineWidget(markerColor, contrastColor, widgetStyle, actualLineHeight),
++								side: 1
++							});
++							builder.add(view.state.doc.length, view.state.doc.length, widget);
++						}
+ 					}
+ 				} else {
+ 					const char = view.state.doc.sliceString(pos, pos + 1);
+-					if (char === '\n' || char === '') {
+-						const widgetStyle = plugin.settings.customCursorStyle === 'bar' ? 'bar' : 'block';
+-						const widget = Decoration.widget({
+-							widget: new EndOfLineWidget(markerColor, contrastColor, widgetStyle, actualLineHeight),
+-							side: 1
+-						});
+-						builder.add(pos, pos, widget);
++					let isEOL = char === '\n' || char === '';
++					let isSoftWrapEnd = false;
++
++					if (!isEOL) {
++						const assoc = view.state.selection.main.assoc;
++						if (assoc === -1) {
++							const here = view.coordsAtPos(pos, -1);
++							const next = view.coordsAtPos(pos, 1);
++							if (here && next) {
++								const wrappedToNextVisualLine = Math.abs(next.top - here.top) > (actualLineHeight / 2);
++								if (wrappedToNextVisualLine) {
++									isSoftWrapEnd = true;
++								}
++							}
++						}
++					}
++
++					if (isEOL || isSoftWrapEnd) {
++						// Handle EOL or soft wrap end
++						const widgetSide = isSoftWrapEnd ? -1 : 1;
++						
++						if (plugin.settings.customCursorStyle === 'ibeam') {
++							const widget = Decoration.widget({
++								widget: new IBeamCursorEOLWidget(markerColor, actualLineHeight),
++								side: widgetSide
++							});
++							builder.add(pos, pos, widget);
++						} else if (plugin.settings.customCursorStyle === 'thinbar') {
++							const widget = Decoration.widget({
++								widget: new ThinBarCursorEOLWidget(thinBarColor, actualLineHeight),
++								side: widgetSide
++							});
++							builder.add(pos, pos, widget);
++						} else {
++							const widgetStyle = plugin.settings.customCursorStyle === 'bar' ? 'bar' : 'block';
++							const widget = Decoration.widget({
++								widget: new EndOfLineWidget(markerColor, contrastColor, widgetStyle, actualLineHeight),
++								side: widgetSide
++							});
++							builder.add(pos, pos, widget);
++						}
+ 					} else {
++						// Handle mid-line positions
++						// Use assoc to determine widget placement side:
++						// assoc >= 0 means cursor arrived moving left (place widget before pos, side: 1)
++						// assoc < 0 means cursor arrived moving right (place widget after prev char, side: -1)
++						const assoc = view.state.selection.main.assoc;
++						const widgetSide = assoc < 0 ? -1 : 1;
+ 						if (plugin.settings.customCursorStyle === 'bar') {
+-							// Use a widget positioned before the character for bar cursor
+ 							const widget = Decoration.widget({
+ 								widget: new BarCursorWidget(markerColor, actualLineHeight),
+-								side: 0
++								side: widgetSide
++							});
++							builder.add(pos, pos, widget);
++						} else if (plugin.settings.customCursorStyle === 'ibeam') {
++							const widget = Decoration.widget({
++								widget: new IBeamCursorWidget(markerColor, actualLineHeight),
++								side: widgetSide
++							});
++							builder.add(pos, pos, widget);
++						} else if (plugin.settings.customCursorStyle === 'thinbar') {
++							const widget = Decoration.widget({
++								widget: new ThinBarCursorWidget(thinBarColor, actualLineHeight),
++								side: widgetSide
+ 							});
+ 							builder.add(pos, pos, widget);
+ 						} else {
+@@ -479,14 +789,9 @@ export default class VisibleCursorPlugin extends Plugin {
+ 
+ 
+ 
++	private lastStyleContent: string = '';
++
+ 	private updateCursorStyles(markerColor: string, contrastColor: string): void {
+-		if (this.styleElement) {
+-			this.styleElement.remove();
+-		}
+-		
+-		this.styleElement = document.createElement('style');
+-		this.styleElement.id = 'cursor-flash-dynamic-styles';
+-		
+ 		let styleContent = `
+ 			.cursor-flash-block-mark {
+ 				background-color: ${markerColor} !important;
+@@ -494,14 +799,20 @@ export default class VisibleCursorPlugin extends Plugin {
+ 			}
+ 		`;
+ 		
+-		if (this.settings.customCursorStyle === 'bar') {
+-			styleContent += `
+-			.cursor-flash-bar {
+-				background: linear-gradient(90deg, ${markerColor} 0px, ${markerColor} 3px, transparent 3px) !important;
++		if (this.lastStyleContent === styleContent && this.styleElement) {
++			if (!this.styleElement.isConnected) {
++				document.head.appendChild(this.styleElement);
+ 			}
+-			`;
++			return; // No need to update if styles haven't changed
++		}
++		this.lastStyleContent = styleContent;
++
++		if (this.styleElement) {
++			this.styleElement.remove();
+ 		}
+ 		
++		this.styleElement = document.createElement('style');
++		this.styleElement.id = 'cursor-flash-dynamic-styles';
+ 		this.styleElement.textContent = styleContent;
+ 		document.head.appendChild(this.styleElement);
+ 	}
+diff --git a/settings.ts b/settings.ts
+index d32e18e..10ca8e3 100644
+--- a/settings.ts
++++ b/settings.ts
+@@ -4,7 +4,7 @@ import VisibleCursorPlugin from './main';
+ 
+ export interface VisibleCursorPluginSettings {
+ 	customCursorMode: 'always' | 'flash' | 'off';
+-	customCursorStyle: 'block' | 'bar';
++	customCursorStyle: 'block' | 'bar' | 'ibeam' | 'thinbar';
+ 	lineHighlightMode: 'left' | 'centered' | 'right' | 'off';
+ 	cursorCustomColorLight: string;
+ 	cursorCustomColorDark: string;
+@@ -70,8 +70,10 @@ export class VisibleCursorSettingTab extends PluginSettingTab {
+ 			.addDropdown(dropdown => dropdown
+ 				.addOption('block', 'Block')
+ 				.addOption('bar', 'Bar')
++				.addOption('ibeam', 'I-beam')
++				.addOption('thinbar', 'Thin Bar')
+ 				.setValue(this.plugin.settings.customCursorStyle)
+-				.onChange(async (value: 'block' | 'bar') => {
++				.onChange(async (value: 'block' | 'bar' | 'ibeam' | 'thinbar') => {
+ 					this.plugin.settings.customCursorStyle = value;
+ 					await this.plugin.saveSettings();
+ 					this.plugin.refreshDecorations();
+diff --git a/src/utils.ts b/src/utils.ts
+index cc6e873..0509f98 100644
+--- a/src/utils.ts
++++ b/src/utils.ts
+@@ -138,3 +138,98 @@ export function shouldAllowFlash(
+ export function calculateScrollDebounceTime(scrollDelta: number): number {
+ 	return scrollDelta < 5 ? 250 : 150;
+ }
++
++/**
++ * Convert RGB to HSL
++ */
++export function rgbToHsl(r: number, g: number, b: number): { h: number; s: number; l: number } {
++	r /= 255;
++	g /= 255;
++	b /= 255;
++
++	const max = Math.max(r, g, b);
++	const min = Math.min(r, g, b);
++	let h = 0;
++	let s = 0;
++	const l = (max + min) / 2;
++
++	if (max !== min) {
++		const d = max - min;
++		s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
++
++		switch (max) {
++			case r:
++				h = ((g - b) / d + (g < b ? 6 : 0)) / 6;
++				break;
++			case g:
++				h = ((b - r) / d + 2) / 6;
++				break;
++			case b:
++				h = ((r - g) / d + 4) / 6;
++				break;
++		}
++	}
++
++	return { h: h * 360, s: s * 100, l: l * 100 };
++}
++
++/**
++ * Convert HSL to RGB
++ */
++export function hslToRgb(h: number, s: number, l: number): { r: number; g: number; b: number } {
++	h /= 360;
++	s /= 100;
++	l /= 100;
++
++	let r: number, g: number, b: number;
++
++	if (s === 0) {
++		r = g = b = l;
++	} else {
++		const hue2rgb = (p: number, q: number, t: number): number => {
++			if (t < 0) t += 1;
++			if (t > 1) t -= 1;
++			if (t < 1 / 6) return p + (q - p) * 6 * t;
++			if (t < 1 / 2) return q;
++			if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
++			return p;
++		};
++
++		const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
++		const p = 2 * l - q;
++		r = hue2rgb(p, q, h + 1 / 3);
++		g = hue2rgb(p, q, h);
++		b = hue2rgb(p, q, h - 1 / 3);
++	}
++
++	return {
++		r: Math.round(r * 255),
++		g: Math.round(g * 255),
++		b: Math.round(b * 255)
++	};
++}
++
++/**
++ * Adjust color for thin bar cursor to maintain visual weight
++ * Based on Stevens' Power Law: for a thinner line to have the same
++ * perceived visual weight, we need to decrease lightness (make it darker).
++ * 
++ * For a 2px line vs 3px line (ratio 0.667), we reduce lightness by ~12%
++ * to compensate for the reduced visual mass.
++ * 
++ * @param hexColor - The base color in hex format
++ * @returns The adjusted color in hex format
++ */
++export function adjustColorForThinBar(hexColor: string): string {
++	const rgb = hexToRgb(hexColor);
++	const hsl = rgbToHsl(rgb.r, rgb.g, rgb.b);
++	
++	// Reduce lightness by 12% to compensate for thinner width
++	// This maintains perceived visual weight according to Stevens' Power Law
++	// where perceived intensity ∝ (physical intensity)^0.33 for brightness
++	const adjustedL = Math.max(0, hsl.l - 12);
++	
++	const adjustedRgb = hslToRgb(hsl.h, hsl.s, adjustedL);
++	
++	return `#${adjustedRgb.r.toString(16).padStart(2, '0')}${adjustedRgb.g.toString(16).padStart(2, '0')}${adjustedRgb.b.toString(16).padStart(2, '0')}`;
++}
+diff --git a/styles.css b/styles.css
+index b876b2c..77b41af 100644
+--- a/styles.css
++++ b/styles.css
+@@ -19,35 +19,54 @@
+ /* Hide the native Obsidian cursor when custom cursor decorations are present */
+ .cm-content:has(.cursor-flash-block-mark),
+ .cm-content:has(.cursor-flash-bar),
++.cm-content:has(.cursor-flash-bar-mark),
++.cm-content:has(.cursor-flash-ibeam),
++.cm-content:has(.cursor-flash-ibeam-mark),
++.cm-content:has(.cursor-flash-thinbar),
++.cm-content:has(.cursor-flash-thinbar-mark),
+ .cm-line:has(.cursor-flash-block-mark),
+-.cm-line:has(.cursor-flash-bar) {
++.cm-line:has(.cursor-flash-bar),
++.cm-line:has(.cursor-flash-bar-mark),
++.cm-line:has(.cursor-flash-ibeam),
++.cm-line:has(.cursor-flash-ibeam-mark),
++.cm-line:has(.cursor-flash-thinbar),
++.cm-line:has(.cursor-flash-thinbar-mark) {
+   caret-color: transparent !important;
+ }
+ 
+ /* Hide CodeMirror's cursor layer when custom cursor is active */
+ .cm-content:has(.cursor-flash-block-mark) .cm-cursorLayer,
+-.cm-content:has(.cursor-flash-bar) .cm-cursorLayer {
++.cm-content:has(.cursor-flash-bar) .cm-cursorLayer,
++.cm-content:has(.cursor-flash-bar-mark) .cm-cursorLayer,
++.cm-content:has(.cursor-flash-ibeam) .cm-cursorLayer,
++.cm-content:has(.cursor-flash-ibeam-mark) .cm-cursorLayer,
++.cm-content:has(.cursor-flash-thinbar) .cm-cursorLayer,
++.cm-content:has(.cursor-flash-thinbar-mark) .cm-cursorLayer {
+   visibility: hidden !important;
+ }
+ 
+ /* Make block cursor overlay click-through too */
+ .cursor-flash-block-mark {
+   pointer-events: none;
+-  contain: paint;
+-  will-change: opacity, transform;
+-  /* Use CSS custom properties for dynamic colors */
+-  background-color: var(--cursor-bg) !important;
+-  color: var(--cursor-fg) !important;
+ }
+ 
+ /* Bar cursor - imitates standard Obsidian cursor with custom color */
++/* NOTE: do NOT use contain:paint here - the cursor visual overflows the zero-width element */
+ .cursor-flash-bar {
+   pointer-events: none;
+-  contain: paint;
+-  will-change: opacity, transform;
+-  /* Creates a 3px wide vertical line using background gradient */
+-  background: linear-gradient(90deg, var(--cursor-bg) 0px, var(--cursor-bg) 3px, transparent 3px) !important;
+-  background-color: transparent !important;
++  overflow: visible;
++}
++
++/* I-beam cursor - traditional text editing cursor shape */
++.cursor-flash-ibeam {
++  pointer-events: none;
++  overflow: visible;
++}
++
++/* Thin bar cursor - 2px wide vertical line without caps */
++.cursor-flash-thinbar {
++  pointer-events: none;
++  overflow: visible;
+ }
+ 
+ @keyframes flash-char-fade {

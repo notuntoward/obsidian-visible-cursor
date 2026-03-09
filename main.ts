@@ -5,7 +5,7 @@ import { VisibleCursorPluginSettings, DEFAULT_SETTINGS, VisibleCursorSettingTab 
 import { ColorProvider } from './src/services/colorProvider';
 import { FlashScheduler, type FlashState } from './src/services/flashScheduler';
 import { FlashRenderer } from './src/services/flashRenderer';
-import { hexToRgb } from './src/utils';
+import { hexToRgb, adjustColorForThinBar } from './src/utils';
 
 class EndOfLineWidget extends WidgetType {
 	constructor(private markerColor: string, private contrastColor: string, private style: 'block' | 'bar' = 'block', private lineHeight?: number) {
@@ -47,19 +47,32 @@ class BarCursorWidget extends WidgetType {
 		super();
 	}
 	toDOM() {
+		// width:0 + overflow:visible ensures the widget takes no space in the text flow,
+		// which prevents it from displacing characters across soft-wrap boundaries.
 		const span = document.createElement('span');
 		span.className = 'cursor-flash-bar';
 		span.style.cssText = `
 			display: inline-block;
+			width: 0;
+			height: ${this.lineHeight}px;
+			overflow: visible;
+			pointer-events: none;
+			vertical-align: text-bottom;
+			position: relative;
+			z-index: 1;
+		`;
+		// The visible cursor is a separate absolutely positioned element
+		const bar = document.createElement('span');
+		bar.style.cssText = `
+			position: absolute;
+			left: 0;
+			top: 0;
 			width: 3px;
 			height: ${this.lineHeight}px;
 			background-color: ${this.markerColor};
 			pointer-events: none;
-			vertical-align: text-bottom;
-			position: relative;
-			margin-left: -1px;
-			z-index: 1;
 		`;
+		span.appendChild(bar);
 		span.setAttribute('aria-hidden', 'true');
 		return span;
 	}
@@ -167,7 +180,9 @@ export default class VisibleCursorPlugin extends Plugin {
 				const pos = view.state.selection.main.head;
 				const markerColor = plugin.colorProvider.getColor(plugin.settings).color;
 				const contrastColor = plugin.colorProvider.getContrastColor(markerColor);
-				plugin.updateCursorStyles(markerColor, contrastColor);
+				// Thinbar uses a slightly darkened color to maintain visual weight at 2px width
+				const thinBarColor = adjustColorForThinBar(markerColor);
+				plugin.updateCursorStyles(markerColor, contrastColor, thinBarColor);
 
 				// Get the actual line height from font-size which is more reliable
 				let actualLineHeight = view.defaultLineHeight;
@@ -197,39 +212,68 @@ export default class VisibleCursorPlugin extends Plugin {
 
 				if (pos >= view.state.doc.length) {
 					if (view.state.doc.length > 0) {
-					const widgetStyle = plugin.settings.customCursorStyle === 'bar' ? 'bar' : 'block';
+						const isThinBar = plugin.settings.customCursorStyle === 'thinbar';
+						const widgetStyle = (plugin.settings.customCursorStyle === 'bar' || isThinBar) ? 'bar' : 'block';
+						const eolColor = isThinBar ? thinBarColor : markerColor;
 						const widget = Decoration.widget({
-							widget: new EndOfLineWidget(markerColor, contrastColor, widgetStyle, actualLineHeight),
+							widget: new EndOfLineWidget(eolColor, contrastColor, widgetStyle, actualLineHeight),
 							side: 1
 						});
 						builder.add(view.state.doc.length, view.state.doc.length, widget);
 					}
 				} else {
 					const char = view.state.doc.sliceString(pos, pos + 1);
-					if (char === '\n' || char === '') {
-						const widgetStyle = plugin.settings.customCursorStyle === 'bar' ? 'bar' : 'block';
+					let isEOL = char === '\n' || char === '';
+
+					// Detect soft-wrap: if selection arrived from the right (assoc < 0),
+					// check if position pos is visually at the end of a wrapped line.
+					// coordsAtPos(pos, -1) gives coords approaching from the left (end of prev visual line),
+					// coordsAtPos(pos, 1) gives coords approaching from the right (start of next visual line).
+					// If they differ in vertical position, pos is a soft-wrap boundary.
+					let isSoftWrapEnd = false;
+					if (!isEOL && view.state.selection.main.assoc < 0) {
+						try {
+							const coordsLeft = view.coordsAtPos(pos, -1);
+							const coordsRight = view.coordsAtPos(pos, 1);
+							if (coordsLeft && coordsRight && Math.abs(coordsLeft.top - coordsRight.top) > (actualLineHeight * 0.5)) {
+								isSoftWrapEnd = true;
+							}
+						} catch (e) {
+							// coordsAtPos can throw; ignore and treat as non-soft-wrap
+						}
+					}
+
+					if (isEOL || isSoftWrapEnd) {
+						// For soft-wrap ends use side:-1 so the widget appears at the end of the current
+						// visual line rather than at the start of the next one.
+						const widgetSide = isSoftWrapEnd ? -1 : 1;
+						// thinbar uses the same EOL widget style as bar (a thin vertical line)
+						// but with an adjusted color for visual weight compensation
+						const isThinBar = plugin.settings.customCursorStyle === 'thinbar';
+						const widgetStyle = (plugin.settings.customCursorStyle === 'bar' || isThinBar) ? 'bar' : 'block';
+						const eolColor = isThinBar ? thinBarColor : markerColor;
 						const widget = Decoration.widget({
-							widget: new EndOfLineWidget(markerColor, contrastColor, widgetStyle, actualLineHeight),
-							side: 1
+							widget: new EndOfLineWidget(eolColor, contrastColor, widgetStyle, actualLineHeight),
+							side: widgetSide
 						});
 						builder.add(pos, pos, widget);
 					} else {
+						// Use mark decoration for all cursor styles.
+						// Decoration.mark wraps an existing character in a span without inserting
+						// new DOM nodes, so it cannot affect word-breaking or text reflow.
+						// The bar/thinbar cursor appearance is achieved via CSS ::before pseudo-element.
+						let markClass: string;
 						if (plugin.settings.customCursorStyle === 'bar') {
-							// Use a widget positioned before the character for bar cursor
-							const widget = Decoration.widget({
-								widget: new BarCursorWidget(markerColor, actualLineHeight),
-								side: 0
-							});
-							builder.add(pos, pos, widget);
+							markClass = 'cursor-flash-bar-mark';
+						} else if (plugin.settings.customCursorStyle === 'thinbar') {
+							markClass = 'cursor-flash-thinbar-mark';
 						} else {
-							// Use mark decoration for block cursor
-							const decoration = Decoration.mark({
-								attributes: {
-									class: 'cursor-flash-block-mark',
-								}
-							});
-							builder.add(pos, pos + 1, decoration);
+							markClass = 'cursor-flash-block-mark';
 						}
+						const decoration = Decoration.mark({
+							attributes: { class: markClass }
+						});
+						builder.add(pos, pos + 1, decoration);
 					}
 				}
 
@@ -479,7 +523,7 @@ export default class VisibleCursorPlugin extends Plugin {
 
 
 
-	private updateCursorStyles(markerColor: string, contrastColor: string): void {
+	private updateCursorStyles(markerColor: string, contrastColor: string, thinBarColor?: string): void {
 		if (this.styleElement) {
 			this.styleElement.remove();
 		}
@@ -487,20 +531,47 @@ export default class VisibleCursorPlugin extends Plugin {
 		this.styleElement = document.createElement('style');
 		this.styleElement.id = 'cursor-flash-dynamic-styles';
 		
-		let styleContent = `
+		const tbColor = thinBarColor ?? markerColor;
+		
+		// Block cursor: highlight the character with a background color.
+		// Bar/thinbar cursor: draw a thin vertical bar before the character using ::before pseudo-element.
+		// Using Decoration.mark (not widget) for all, so no DOM nodes are inserted between
+		// text characters — this prevents the cursor decoration from affecting word-wrap.
+		const styleContent = `
 			.cursor-flash-block-mark {
 				background-color: ${markerColor} !important;
 				color: ${contrastColor} !important;
+				position: relative;
+			}
+			.cursor-flash-bar-mark {
+				position: relative;
+			}
+			.cursor-flash-bar-mark::before {
+				content: '';
+				position: absolute;
+				left: 0;
+				top: 0;
+				bottom: 0;
+				width: 3px;
+				background-color: ${markerColor};
+				pointer-events: none;
+				z-index: 2;
+			}
+			.cursor-flash-thinbar-mark {
+				position: relative;
+			}
+			.cursor-flash-thinbar-mark::before {
+				content: '';
+				position: absolute;
+				left: 0;
+				top: 0;
+				bottom: 0;
+				width: 2px;
+				background-color: ${tbColor};
+				pointer-events: none;
+				z-index: 2;
 			}
 		`;
-		
-		if (this.settings.customCursorStyle === 'bar') {
-			styleContent += `
-			.cursor-flash-bar {
-				background: linear-gradient(90deg, ${markerColor} 0px, ${markerColor} 3px, transparent 3px) !important;
-			}
-			`;
-		}
 		
 		this.styleElement.textContent = styleContent;
 		document.head.appendChild(this.styleElement);

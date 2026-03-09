@@ -4,7 +4,7 @@ import VisibleCursorPlugin from './main';
 
 export interface VisibleCursorPluginSettings {
 	customCursorMode: 'always' | 'flash' | 'off';
-	customCursorStyle: 'block' | 'bar';
+	customCursorStyle: 'block' | 'bar' | 'thinbar';
 	lineHighlightMode: 'left' | 'centered' | 'right' | 'off';
 	cursorCustomColorLight: string;
 	cursorCustomColorDark: string;
@@ -70,8 +70,9 @@ export class VisibleCursorSettingTab extends PluginSettingTab {
 			.addDropdown(dropdown => dropdown
 				.addOption('block', 'Block')
 				.addOption('bar', 'Bar')
+				.addOption('thinbar', 'Thin bar')
 				.setValue(this.plugin.settings.customCursorStyle)
-				.onChange(async (value: 'block' | 'bar') => {
+				.onChange(async (value: 'block' | 'bar' | 'thinbar') => {
 					this.plugin.settings.customCursorStyle = value;
 					await this.plugin.saveSettings();
 					this.plugin.refreshDecorations();
