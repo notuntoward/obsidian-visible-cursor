@@ -288,12 +288,19 @@ export default class VisibleCursorPlugin extends Plugin {
 						const assoc = view.state.selection.main.assoc;
 						const docLine = view.state.doc.lineAt(pos);
 	
+						// Also check if the emacs-text-editor plugin signalled a move-to-end
+						// action. The emacs plugin exposes a capture-phase flag so that any
+						// key binding the user assigns to "move-end-of-line" is handled
+						// correctly, not just the default Ctrl+E.
+						const emacsPlugin = (plugin.app as any)?.plugins?.plugins?.['emacs-text-editor'];
+						const emacsMoveToEndRecently = emacsPlugin?.moveToEndRecently === true;
+	
 						const isSoftWrapEnd = detectSoftWrapEnd({
 							lineWrapping: view.lineWrapping,
 							isEOL,
 							isMidDocLine: pos > docLine.from,
 							assoc,
-							endKeyPressedRecently: plugin.endKeyPressedRecently,
+							endKeyPressedRecently: plugin.endKeyPressedRecently || emacsMoveToEndRecently,
 							coordsLeftTop: undefined,
 							coordsRightTop: undefined,
 							actualLineHeight
