@@ -1,6 +1,6 @@
 import { Plugin, MarkdownView } from 'obsidian';
 import { EditorView, ViewPlugin, ViewUpdate, Decoration, DecorationSet, WidgetType } from '@codemirror/view';
-import { RangeSetBuilder } from '@codemirror/state';
+import { RangeSetBuilder, Transaction } from '@codemirror/state';
 import { VisibleCursorPluginSettings, DEFAULT_SETTINGS, VisibleCursorSettingTab } from './settings';
 import { ColorProvider } from './src/services/colorProvider';
 import { FlashScheduler, type FlashState } from './src/services/flashScheduler';
@@ -210,12 +210,12 @@ export default class VisibleCursorPlugin extends Plugin {
 			}
 
 			update(update: ViewUpdate) {
-				this.decorations = this.buildDecorations(update.view);
+				this.decorations = this.buildDecorations(update);
 			}
 
-			buildDecorations(view: EditorView): DecorationSet {
+			buildDecorations(update: ViewUpdate): DecorationSet {
 				const builder = new RangeSetBuilder();
-				if (!view.hasFocus) {
+				if (!update.view.hasFocus) {
 					return builder.finish() as DecorationSet;
 				}
 
@@ -227,7 +227,7 @@ export default class VisibleCursorPlugin extends Plugin {
 					return builder.finish() as DecorationSet;
 				}
 
-				const pos = view.state.selection.main.head;
+				const pos = update.view.state.selection.main.head;
 				const markerColor = plugin.colorProvider.getColor(plugin.settings).color;
 				const contrastColor = plugin.colorProvider.getContrastColor(markerColor);
 				// Thinbar uses a slightly darkened color to maintain visual weight at 2px width
@@ -235,9 +235,9 @@ export default class VisibleCursorPlugin extends Plugin {
 				plugin.updateCursorStyles(markerColor, contrastColor, thinBarColor);
 
 				// Get the actual line height from font-size which is more reliable
-				let actualLineHeight = view.defaultLineHeight;
+				let actualLineHeight = update.view.defaultLineHeight;
 				try {
-					const domAtPos = view.domAtPos(pos);
+					const domAtPos = update.view.domAtPos(pos);
 					if (domAtPos && domAtPos.node) {
 						const element = domAtPos.node.nodeType === 1
 							? domAtPos.node as HTMLElement
@@ -257,11 +257,11 @@ export default class VisibleCursorPlugin extends Plugin {
 					}
 				} catch (e) {
 					// Fallback to default if there's any error
-					actualLineHeight = view.defaultLineHeight;
+					actualLineHeight = update.view.defaultLineHeight;
 				}
 
-				if (pos >= view.state.doc.length) {
-					if (view.state.doc.length > 0) {
+				if (pos >= update.view.state.doc.length) {
+					if (update.view.state.doc.length > 0) {
 						const isThinBar = plugin.settings.customCursorStyle === 'thinbar';
 						const widgetStyle = (plugin.settings.customCursorStyle === 'bar' || isThinBar) ? 'bar' : 'block';
 						const eolColor = isThinBar ? thinBarColor : markerColor;
@@ -269,10 +269,10 @@ export default class VisibleCursorPlugin extends Plugin {
 							widget: new EndOfLineWidget(eolColor, contrastColor, widgetStyle, actualLineHeight),
 							side: 1
 						});
-						builder.add(view.state.doc.length, view.state.doc.length, widget);
+						builder.add(update.view.state.doc.length, update.view.state.doc.length, widget);
 					}
 				} else {
-					const char = view.state.doc.sliceString(pos, pos + 1);
+					const char = update.view.state.doc.sliceString(pos, pos + 1);
 						let isEOL = char === '\n' || char === '';
 	
 						// Soft-wrap end detection. See detectSoftWrapEnd() in src/utils.ts.
@@ -285,18 +285,17 @@ export default class VisibleCursorPlugin extends Plugin {
 						// endKeyPressedRecently = true when End is pressed and clears it on any
 						// other key — before CM6 processes the keystroke and calls update().
 						// After →, the flag is false by the time buildDecorations runs.
-						const assoc = view.state.selection.main.assoc;
-						const docLine = view.state.doc.lineAt(pos);
+						const assoc = update.view.state.selection.main.assoc;
+						const docLine = update.view.state.doc.lineAt(pos);
 	
 						// Also check if the emacs-text-editor plugin signalled a move-to-end
-						// action. The emacs plugin exposes a capture-phase flag so that any
-						// key binding the user assigns to "move-end-of-line" is handled
-						// correctly, not just the default Ctrl+E.
-						const emacsPlugin = (plugin.app as any)?.plugins?.plugins?.['emacs-text-editor'];
-						const emacsMoveToEndRecently = emacsPlugin?.moveToEndRecently === true;
+						// action via a Transaction.userEvent annotation.
+						const emacsMoveToEndRecently = update.transactions.some(tr =>
+							tr.isUserEvent("emacs.moveToEnd")
+						);
 	
 						const isSoftWrapEnd = detectSoftWrapEnd({
-							lineWrapping: view.lineWrapping,
+							lineWrapping: update.view.lineWrapping,
 							isEOL,
 							isMidDocLine: pos > docLine.from,
 							assoc,
