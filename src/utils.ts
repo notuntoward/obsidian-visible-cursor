@@ -240,7 +240,7 @@ export interface SoftWrapDetectionParams {
 	lineWrapping: boolean;
 	/** Whether the character at pos is an end-of-line character (isEOL already true) */
 	isEOL: boolean;
-	/** Whether pos is in the middle of a document line (pos > docLine.from) */
+	/** Whether pos is on or past the start of a document line (pos >= docLine.from) */
 	isMidDocLine: boolean;
 	/** CM6 selection assoc value (-1, 0, or 1) */
 	assoc: number;
@@ -272,44 +272,18 @@ export interface SoftWrapDetectionParams {
 	actualLineHeight: number;
 }
 
-/**
- * Determine whether the cursor is at a soft-wrap visual line end.
- *
- * Detection strategy:
- *
- * 1. Guard: reject if not mid-line on a wrapped document.
- * 2. assoc === -1 means CM6 has biased the cursor to the left, which
- *    happens at soft-wrap ends regardless of how the cursor got there.
- *    This is now reliable because the emacs plugin's move-beginning-of-line
- *    fix correctly places soft-wrap start positions with assoc = +1, so
- *    assoc = -1 is no longer ambiguous.
- * 3. Geometry step (authoritative when available): if numeric coords are provided,
- *    they can confirm or override the assoc signal.
- *
- * NOTE: endKeyPressedRecently is kept in the interface for backward compatibility
- * but is no longer consulted. The assoc signal is now the primary discriminator.
- */
 export function detectSoftWrapEnd(params: SoftWrapDetectionParams): boolean {
 	const {
-		lineWrapping, isEOL, isMidDocLine, assoc,
-		coordsLeftTop, coordsRightTop, actualLineHeight
+		lineWrapping, isEOL, isMidDocLine, assoc, endKeyPressedRecently
 	} = params;
 
-	// Guard: must be mid-line on a wrapping document, not a real EOL
 	if (isEOL || !lineWrapping || !isMidDocLine) {
 		return false;
 	}
 
-	// assoc === -1 means CM6 has biased the cursor to the left, which
-	// happens at soft-wrap ends regardless of how the cursor got there.
-	if (assoc === -1) {
-		return true;
-	}
-
-	// Geometry override (authoritative when available)
-	if (typeof coordsLeftTop === 'number' && typeof coordsRightTop === 'number') {
-		return Math.abs(coordsLeftTop - coordsRightTop) > actualLineHeight * 0.5;
-	}
-
-	return false;
+	// Only treat as a soft-wrap end if we KNOW an end-of-line intent just fired
+	// (End key or emacs move-end-of-line command), confirmed by assoc === -1.
+	// Without this gate, assoc === -1 is not a reliable signal — it is true
+	// throughout normal right-arrow navigation and causes text reflow.
+	return endKeyPressedRecently && assoc === -1;
 }

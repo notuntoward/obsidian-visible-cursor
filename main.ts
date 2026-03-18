@@ -116,6 +116,7 @@ export default class VisibleCursorPlugin extends Plugin {
 	private pendingFlashTrigger: string | null = null;
 	private scrollFlashSuppressedUntil: number = 0;
 	private endKeyPressedRecently: boolean = false;
+	private softWrapEndCache: { pos: number; isSoftWrapEnd: boolean } | null = null;
 	private endKeyTimer: NodeJS.Timeout | null = null;
 	private boundStartFence: () => void;
 	private boundEndFenceSoon: () => void;
@@ -288,25 +289,25 @@ export default class VisibleCursorPlugin extends Plugin {
 						const assoc = view.state.selection.main.assoc;
 						const docLine = view.state.doc.lineAt(pos);
 	
-						// Also check if the emacs-text-editor plugin signalled a move-to-end
-						// action. The emacs plugin exposes a capture-phase flag so that any
-						// key binding the user assigns to "move-end-of-line" is handled
-						// correctly, not just the default Ctrl+E.
-						const emacsPlugin = (plugin.app as any)?.plugins?.plugins?.['emacs-text-editor'];
-						const emacsMoveToEndRecently = emacsPlugin?.moveToEndRecently === true;
-	
-						const isSoftWrapEnd = detectSoftWrapEnd({
-							lineWrapping: view.lineWrapping,
-							isEOL,
-							isMidDocLine: pos > docLine.from,
-							assoc,
-							endKeyPressedRecently: plugin.endKeyPressedRecently || emacsMoveToEndRecently,
-							coordsLeftTop: undefined,
-							coordsRightTop: undefined,
-							actualLineHeight
-						});
+					// Also check if the emacs-text-editor plugin signalled a move-to-end
+					// action. The emacs plugin exposes a capture-phase flag so that any
+					// key binding the user assigns to "move-end-of-line" is handled
+					// correctly, not just the default Ctrl+E.
+					const emacsPlugin = (plugin.app as any)?.plugins?.plugins?.['emacs-text-editor'];
+					const emacsMoveToEndRecently = emacsPlugin?.moveToEndRecently === true;
 
-					if (isEOL || isSoftWrapEnd) {
+					const isSoftWrapEnd = detectSoftWrapEnd({
+						lineWrapping: view.lineWrapping,
+						isEOL,
+						isMidDocLine: pos >= docLine.from,
+						assoc,
+						endKeyPressedRecently: plugin.endKeyPressedRecently || emacsMoveToEndRecently,
+						coordsLeftTop: undefined,
+						coordsRightTop: undefined,
+						actualLineHeight
+					});
+
+				if (isEOL || isSoftWrapEnd) {
 						// For soft-wrap ends use side:-1 so the widget appears at the end of the current
 						// visual line rather than at the start of the next one.
 						const widgetSide = isSoftWrapEnd ? -1 : 1;
@@ -321,22 +322,24 @@ export default class VisibleCursorPlugin extends Plugin {
 						});
 						builder.add(pos, pos, widget);
 					} else {
-						// Use mark decoration for all cursor styles.
-						// Decoration.mark wraps an existing character in a span without inserting
-						// new DOM nodes, so it cannot affect word-breaking or text reflow.
-						// The bar/thinbar cursor appearance is achieved via CSS ::before pseudo-element.
-						let markClass: string;
-						if (plugin.settings.customCursorStyle === 'bar') {
-							markClass = 'cursor-flash-bar-mark';
-						} else if (plugin.settings.customCursorStyle === 'thinbar') {
-							markClass = 'cursor-flash-thinbar-mark';
-						} else {
-							markClass = 'cursor-flash-block-mark';
+						// Do not place a mark at pos === docLine.from when line wrapping is active —
+						// that position may be a soft-wrap start, and placing a mark there
+						// interferes with CM6's vertical navigation causing line skipping.
+						const isSoftWrapStart = view.lineWrapping && pos === docLine.from && pos > 0;
+						if (!isSoftWrapStart) {
+							let markClass: string;
+							if (plugin.settings.customCursorStyle === 'bar') {
+								markClass = 'cursor-flash-bar-mark';
+							} else if (plugin.settings.customCursorStyle === 'thinbar') {
+								markClass = 'cursor-flash-thinbar-mark';
+							} else {
+								markClass = 'cursor-flash-block-mark';
+							}
+							const decoration = Decoration.mark({
+								attributes: { class: markClass }
+							});
+							builder.add(pos, pos + 1, decoration);
 						}
-						const decoration = Decoration.mark({
-							attributes: { class: markClass }
-						});
-						builder.add(pos, pos + 1, decoration);
 					}
 				}
 

@@ -490,25 +490,29 @@ describe('detectSoftWrapEnd', () => {
 	});
 
 	// -------------------------------------------------------------------------
-	// Geometry fallback: can detect soft-wrap end when assoc !== -1
+	// Geometry alone is NOT sufficient - need BOTH geometry AND assoc === -1
+	// This prevents false positives at soft-wrap starts (where geometry differs
+	// but assoc === +1) and premature firing as cursor approaches the boundary.
 	// -------------------------------------------------------------------------
 
-	it('assoc=0 with soft-wrap geometry → true (geometry fallback)', () => {
-		// Geometry detects boundary even when assoc doesn't signal it
+	it('assoc=0 with soft-wrap geometry → false (geometry alone insufficient)', () => {
+		// Geometry alone is not enough - need BOTH geometry AND assoc === -1
+		// This prevents false positives at soft-wrap starts
 		expect(detectSoftWrapEnd({
 			...baseMidLine,
 			assoc: 0,
 			...softWrapCoords
-		})).toBe(true);
+		})).toBe(false);
 	});
 
-	it('assoc=1 with soft-wrap geometry → true (geometry fallback)', () => {
-		// Geometry can detect boundary even with assoc=1
+	it('assoc=1 with soft-wrap geometry → false (assoc=+1 means soft-wrap START)', () => {
+		// assoc=+1 at a wrap boundary means soft-wrap START, not end
+		// This is critical for correct up-arrow navigation
 		expect(detectSoftWrapEnd({
 			...baseMidLine,
 			assoc: 1,
 			...softWrapCoords
-		})).toBe(true);
+		})).toBe(false);
 	});
 
 	// -------------------------------------------------------------------------
@@ -531,16 +535,15 @@ describe('detectSoftWrapEnd', () => {
 		})).toBe(false);
 	});
 
-	it('assoc=-1 with non-boundary geometry → true (assoc is primary signal)', () => {
-		// With the new implementation, assoc === -1 is the primary signal.
-		// Geometry is only checked when assoc !== -1.
-		// This is correct because assoc = -1 reliably indicates soft-wrap end
-		// (the emacs plugin now sets assoc = +1 at soft-wrap starts).
+	it('assoc=-1 with non-boundary geometry → false (need BOTH signals)', () => {
+		// With the new implementation, we require BOTH geometry AND assoc === -1.
+		// Geometry shows same row (not on boundary), so return false.
+		// This prevents premature firing as cursor approaches the boundary.
 		expect(detectSoftWrapEnd({
 			...baseMidLine,
 			assoc: -1,
 			...nonBoundaryCoords
-		})).toBe(true);
+		})).toBe(false);
 	});
 
 	it('assoc=0 with non-boundary geometry → false', () => {
@@ -597,11 +600,21 @@ describe('detectSoftWrapEnd', () => {
 		})).toBe(false);
 	});
 
-	it('returns true when top difference is just above threshold', () => {
-		// difference = 13 > 12 → true
+	it('returns false when top difference is just above threshold but assoc !== -1', () => {
+		// difference = 13 > 12, but assoc=0, so false (need BOTH signals)
 		expect(detectSoftWrapEnd({
 			...baseMidLine,
-			assoc: 0, // No assoc signal, rely on geometry
+			assoc: 0, // Need assoc === -1 for soft-wrap end
+			coordsLeftTop: 100,
+			coordsRightTop: 113
+		})).toBe(false);
+	});
+
+	it('returns true when top difference is just above threshold AND assoc === -1', () => {
+		// difference = 13 > 12 AND assoc === -1 → true (BOTH signals present)
+		expect(detectSoftWrapEnd({
+			...baseMidLine,
+			assoc: -1,
 			coordsLeftTop: 100,
 			coordsRightTop: 113
 		})).toBe(true);
@@ -620,13 +633,13 @@ describe('detectSoftWrapEnd', () => {
 		})).toBe(false);
 	});
 
-	it('endKeyPressedRecently=true with assoc=0, soft-wrap geometry → true (geometry works)', () => {
-		// Geometry still works regardless of endKeyPressedRecently
+	it('endKeyPressedRecently=true with assoc=0, soft-wrap geometry → false (need assoc === -1)', () => {
+		// Geometry alone is not enough - need BOTH geometry AND assoc === -1
 		expect(detectSoftWrapEnd({
 			...baseMidLine,
 			assoc: 0,
 			endKeyPressedRecently: true,
 			...softWrapCoords
-		})).toBe(true);
+		})).toBe(false);
 	});
 });
