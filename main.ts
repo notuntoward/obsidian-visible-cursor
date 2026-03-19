@@ -62,32 +62,55 @@ class CustomCursorViewPlugin {
 				const pos = sel.head;
 				const style = plugin.settings.customCursorStyle;
 
-				// Use selection.assoc to pick the correct visual line at soft-wrap boundaries.
-				// For block cursor this is the key mechanism: sel.assoc of -1 places the
-				// block at the start of the continuation line; assoc of +1 places it at the
-				// end of the wrapped line (over the trailing space).  The keymap handlers in
-				// createBlockCursorNavFilter() manage the assoc transitions when arrowing
-				// across soft-wrap boundaries, mirroring GNU Emacs block cursor behaviour.
-				// Bar / thinbar cursors use the same mechanism (standard Obsidian behaviour).
-				const coords = view.coordsAtPos(pos, sel.assoc || -1);
+				// For the block cursor, createBlockCursorNavFilter() tracks state via
+				// plugin._blockWrapState.  When set to {logicalPos, showPos, assoc}:
+				//   logicalPos = the actual cursor doc position
+				//   showPos    = the doc position to use for coordinate lookup
+				//   assoc      = the side to use for coordsAtPos
+				// Bar / thinbar use sel.assoc as-is (standard Obsidian behaviour).
+				let visualPos: number = pos;
+				let assocForCoords: number;
+				if (style === 'block') {
+					const wrapState = (plugin as any)._blockWrapState?.() as
+						{ logicalPos: number; showPos: number; assoc: 1 | -1 } | null;
+					if (wrapState && wrapState.logicalPos === pos) {
+						// Explicit wrapState override from createBlockCursorNavFilter():
+						// show block at the START of the continuation line (assoc=+1).
+						// This fires when a single-step ArrowRight arrived at the soft-wrap
+						// boundary (set by navCorrection updateListener, which runs synchronously
+						// before requestMeasure processes, so this branch always fires first
+						// for ArrowRight).
+						visualPos = wrapState.showPos;
+						assocForCoords = wrapState.assoc;
+					} else {
+						// Default: sel.assoc.  End key, click, multi-char jumps, etc. all
+						// arrive here with whatever assoc CM6 assigned — respected as-is.
+						assocForCoords = sel.assoc || -1;
+					}
+				} else {
+					// Bar / thinbar: use sel.assoc directly (standard Obsidian behaviour)
+					assocForCoords = sel.assoc || -1;
+				}
+
+				const coords = view.coordsAtPos(visualPos, assocForCoords as 1 | -1);
 				if (!coords) return null;
 
 				// Convert viewport-relative → scrollDOM-relative coordinates
 				const scrollDOM = view.scrollDOM;
 				const scrollRect = scrollDOM.getBoundingClientRect();
 
-				// For block cursor: measure the actual character width by comparing
-				// coordsAtPos(pos, assoc) with coordsAtPos(pos+1, -1), mirroring
-				// codemirror-emacs's measureCursor approach.
+				// For block cursor: measure the character width.
+				// coordsAtPos(visualPos, assocForCoords) gives the left edge of the char.
+				// coordsAtPos(visualPos+1, +1) gives the left edge of the NEXT char, which
+				// equals the right edge of the current char in LTR text.
 				let charWidth = 0;
 				if (style === 'block') {
 					const doc = view.state.doc;
-					const pos1 = Math.min(doc.length, pos + 1);
-					const rightCoords = pos1 > pos ? view.coordsAtPos(pos1, -1) : null;
+					const vpos1 = Math.min(doc.length, visualPos + 1);
+					const rightCoords = vpos1 > visualPos ? view.coordsAtPos(vpos1, 1) : null;
 					if (rightCoords && rightCoords.left > coords.left) {
 						charWidth = rightCoords.left - coords.left;
 					} else {
-						// Fallback: use a reasonable character width estimate
 						charWidth = view.defaultCharacterWidth || 10;
 					}
 				}
@@ -188,7 +211,6 @@ export default class VisibleCursorPlugin extends Plugin {
 		// 1. CustomCursorViewPlugin — codemirror-emacs BlockCursorPlugin pattern
 		// 2. domEventHandlers — scroll-triggered flashes
 		// 3. blockCursorNavFilter — GNU Emacs soft-wrap boundary navigation for block cursor
-		//    (returns an array: [viewTracker ViewPlugin, EditorState.transactionFilter])
 		this.registerEditorExtension([
 			ViewPlugin.define((view) => new CustomCursorViewPlugin(view, pluginRef)),
 			this.createDOMEventHandlers(),
@@ -268,75 +290,129 @@ export default class VisibleCursorPlugin extends Plugin {
 	}
 
 	/**
-	 * GNU Emacs block cursor navigation filter.
+	 * GNU Emacs block cursor navigation at soft-wrap boundaries.
 	 *
-	 * In GNU Emacs, a block cursor at a soft-wrap boundary works as follows:
-	 *   • When the cursor is at the last position of a wrapped line (visually covering
-	 *     the trailing space), pressing ArrowRight should NOT advance the document offset
-	 *     — it should snap the cursor to the first character of the continuation line
-	 *     (same document offset, assoc flipped to -1).
-	 *   • From there, ArrowRight advances the document offset to the second character.
-	 *   • Pressing ArrowLeft when at start-of-continuation-line (assoc=-1) at a soft-wrap
-	 *     boundary snaps back to assoc=+1 (end of wrapped line) without changing offset.
+	 * Diagnostic data from testing (coordsAtPos) at soft-wrap boundary P
+	 * (the first character of the continuation line in Obsidian/CM6):
+	 *   coordsAtPos(P, -1).top = visual line 1 top  ← END of wrapped line
+	 *   coordsAtPos(P, +1).top = visual line 2 top  ← START of continuation line
 	 *
-	 * Implementation: we use a highest-priority keymap so our handlers run BEFORE CM6's
-	 * own arrow-key bindings.  This is the only reliable way to intercept before CM6
-	 * consumes the event.  coordsAtPos is safe to call here because the DOM is stable
-	 * at the point the keymap fires (between layout frames, BEFORE the transaction).
+	 * The `buildMeasureReq` read function already handles the visual positioning:
+	 * at a soft-wrap boundary with sel.assoc ≤ 0 (CM6's default after a rightward
+	 * move), it overrides to assoc=+1 so the block appears on line 2.
 	 *
-	 * This filter is only active when customCursorStyle === 'block'.
-	 * Bar / thinbar cursors are completely unaffected because the keymap handlers return
-	 * false when the block cursor style is not active.
+	 * This filter only needs to handle one additional case:
+	 *   • When the cursor arrives at P via a rightward keyboard move, block shows
+	 *     on line 2 immediately.  Pressing → AGAIN should advance to P+1 (second
+	 *     char of continuation line), not stay at P.
+	 *   • We use blockWrapState={logicalPos:P, showPos:P, assoc:+1} as a flag set
+	 *     by the updateListener after rightward arrival; handleRight sees it and
+	 *     allows the advance.
+	 *
+	 * Bar / thinbar cursors are completely unaffected.
 	 */
 	createBlockCursorNavFilter() {
 		const plugin = this;
 
+		// Set by the updateListener when a rightward keyboard move arrives at a
+		// soft-wrap boundary P.  Cleared by handleRight when advancing past P,
+		// and by the updateListener when the cursor moves elsewhere.
+		let blockWrapState: { logicalPos: number; showPos: number; assoc: 1 | -1 } | null = null;
+
+		// Expose to buildMeasureReq via plugin instance
+		(plugin as any)._blockWrapState = () => blockWrapState;
+
+		// Detects whether a document position sits at a soft-wrap boundary.
+		const isSoftWrap = (view: EditorView, pos: number): boolean => {
+			const a = view.coordsAtPos(pos, 1);
+			const b = view.coordsAtPos(pos, -1);
+			return !!(a && b && Math.abs(a.top - b.top) > 1);
+		};
+
+		// ── HandleRight ─────────────────────────────────────────────────────────
+		// If blockWrapState is active for the current pos (set by updateListener on
+		// rightward arrival at wrap boundary P): the block is already showing line-2
+		// start.  Clear the state and let CM6 advance to P+1.
 		const handleRight = (view: EditorView): boolean => {
 			if (plugin.settings.customCursorStyle !== 'block') return false;
 			const sel = view.state.selection.main;
 			if (!sel.empty) return false;
 			const pos = sel.head;
-			const coordsAfter  = view.coordsAtPos(pos, 1);
-			const coordsBefore = view.coordsAtPos(pos, -1);
-			if (!coordsAfter || !coordsBefore) return false;
-			const atSoftWrap = Math.abs(coordsAfter.top - coordsBefore.top) > 1;
-			if (!atSoftWrap) return false;
 
-			if (sel.assoc > 0) {
-				// At end-of-wrapped-line: snap to start of continuation line
-				view.dispatch({ selection: EditorSelection.cursor(pos, -1), scrollIntoView: true });
-				return true;
+			if (blockWrapState && blockWrapState.logicalPos === pos) {
+				// Block is showing line-2-start; this press advances to P+1
+				blockWrapState = null;
+				return false;  // let CM6 advance normally
 			}
-			// assoc <= 0: let CM6 move forward normally (to pos+1)
+
+			blockWrapState = null;
 			return false;
 		};
 
+		// ── HandleLeft ───────────────────────────────────────────────────────────
+		// Clear blockWrapState on any leftward press so the visual reverts to normal
+		// sel.assoc-based rendering.  CM6 naturally handles the visual correctly
+		// when moving left through the boundary (lands at P with assoc=+1 showing
+		// the first char of line 2, then retreats to P-1 on the next ←).
 		const handleLeft = (view: EditorView): boolean => {
 			if (plugin.settings.customCursorStyle !== 'block') return false;
-			const sel = view.state.selection.main;
-			if (!sel.empty) return false;
-			const pos = sel.head;
-			const coordsAfter  = view.coordsAtPos(pos, 1);
-			const coordsBefore = view.coordsAtPos(pos, -1);
-			if (!coordsAfter || !coordsBefore) return false;
-			const atSoftWrap = Math.abs(coordsAfter.top - coordsBefore.top) > 1;
-			if (!atSoftWrap) return false;
-
-			if (sel.assoc < 0) {
-				// At start-of-continuation-line: snap back to end of wrapped line
-				view.dispatch({ selection: EditorSelection.cursor(pos, 1), scrollIntoView: true });
-				return true;
-			}
-			// assoc >= 0: let CM6 move backward normally (to pos-1)
+			if (!view.state.selection.main.empty) return false;
+			blockWrapState = null;
 			return false;
 		};
 
-		// Use Prec.highest so our keymap overrides CM6's built-in ArrowRight/Left handlers
+		// ── UpdateListener ─────────────────────────────────────────────────────
+		// When a rightward keyboard move arrives at soft-wrap boundary P, set
+		// blockWrapState so the advance-logic in handleRight is armed for the
+		// next → press.  Also clears stale state when cursor moves elsewhere.
+		const navCorrection = EditorView.updateListener.of((update: ViewUpdate) => {
+			if (!update.selectionSet && !update.docChanged) return;
+			const sel = update.state.selection.main;
+
+			// Clear stale blockWrapState if cursor moved away from logicalPos
+			if (blockWrapState !== null) {
+				const logicalPos = blockWrapState.logicalPos;
+				if (update.docChanged || !sel.empty || sel.head !== logicalPos) {
+					blockWrapState = null;
+				}
+			}
+
+			if (blockWrapState !== null) return;
+			if (!update.selectionSet || update.docChanged) return;
+			if (plugin.settings.customCursorStyle !== 'block') return;
+			if (!sel.empty) return;
+
+			const pos = sel.head;
+			const oldSel = update.startState.selection.main;
+
+			// Only for keyboard rightward moves (not pointer clicks)
+			const isKeyboardMove = update.transactions.some(t =>
+				t.isUserEvent('move') || (t.isUserEvent('select') && !t.isUserEvent('select.pointer'))
+			);
+			if (!isKeyboardMove) return;
+
+			// Single-character ArrowRight arrived at soft-wrap boundary P:
+			//   - Dispatch cursor(P, +1) to flip sel.assoc to +1 so the block
+			//     cursor shows at the START of the continuation line (first char).
+			//   - Set blockWrapState so the next → press knows to advance to P+1.
+			// The pos - oldSel.head === 1 check excludes End key and other jumps.
+			// The resulting dispatch has pos - oldSel.head = 0, so the updateListener
+			// won't recurse.
+			if (pos - oldSel.head === 1 && isSoftWrap(update.view, pos)) {
+				blockWrapState = { logicalPos: pos, showPos: pos, assoc: 1 };
+				// Dispatch to set sel.assoc=1 so buildMeasureReq shows line-2-start
+				update.view.dispatch({
+					selection: EditorSelection.cursor(pos, 1)
+				});
+			}
+		});
+
 		return [
 			Prec.highest(keymap.of([
 				{ key: 'ArrowRight', run: handleRight },
 				{ key: 'ArrowLeft',  run: handleLeft  },
-			]))
+			])),
+			navCorrection
 		];
 	}
 
