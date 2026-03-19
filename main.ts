@@ -1,103 +1,152 @@
 import { Plugin, MarkdownView } from 'obsidian';
-import { EditorView, ViewPlugin, ViewUpdate, Decoration, DecorationSet, WidgetType } from '@codemirror/view';
-import { RangeSetBuilder, Transaction } from '@codemirror/state';
+import { EditorView, ViewPlugin, ViewUpdate, keymap } from '@codemirror/view';
+import { EditorSelection, Prec } from '@codemirror/state';
 import { VisibleCursorPluginSettings, DEFAULT_SETTINGS, VisibleCursorSettingTab } from './settings';
 import { ColorProvider } from './src/services/colorProvider';
 import { FlashScheduler, type FlashState } from './src/services/flashScheduler';
 import { FlashRenderer } from './src/services/flashRenderer';
-import { hexToRgb, adjustColorForThinBar, detectSoftWrapEnd } from './src/utils';
 
-class EndOfLineWidget extends WidgetType {
-	constructor(
-		private markerColor: string,
-		private contrastColor: string,
-		private style: 'block' | 'bar' = 'block',
-		private lineHeight?: number
-	) {
-		super();
+/**
+ * Custom cursor rendering, mirroring the codemirror-emacs BlockCursorPlugin pattern.
+ *
+ * Creates a cursor layer div in view.scrollDOM and positions a cursor element
+ * via view.requestMeasure() using view.coordsAtPos() with selection.assoc for
+ * correct soft-wrap boundary handling.
+ *
+ * Coordinate conversion: viewport → scrollDOM-relative
+ *   top  = coords.top  - scrollDOM.getBoundingClientRect().top  + scrollDOM.scrollTop
+ *   left = coords.left - scrollDOM.getBoundingClientRect().left + scrollDOM.scrollLeft
+ */
+class CustomCursorViewPlugin {
+	private cursorLayer: HTMLElement;
+	private cursorEl: HTMLElement | null = null;
+	private view: EditorView;
+	private plugin: VisibleCursorPlugin;
+
+	constructor(view: EditorView, plugin: VisibleCursorPlugin) {
+		this.view = view;
+		this.plugin = plugin;
+
+		this.cursorLayer = document.createElement('div');
+		this.cursorLayer.className = 'visible-cursor-custom-layer';
+		this.cursorLayer.setAttribute('aria-hidden', 'true');
+		this.cursorLayer.style.cssText = 'position: absolute; top: 0; left: 0; pointer-events: none; overflow: visible;';
+		view.scrollDOM.appendChild(this.cursorLayer);
+
+		view.requestMeasure(this.buildMeasureReq());
 	}
-	toDOM() {
-		const span = document.createElement('span');
-		span.setAttribute('aria-hidden', 'true');
 
-		// All cursor widgets use a zero-size (width:0, height:0) wrapper with overflow:visible
-		// so they never affect inline layout or line-box height.  The visible cursor indicator
-		// is an absolutely-positioned child that overflows the wrapper without adding to it.
-		const cssHeight = this.lineHeight ? `${this.lineHeight}px` : '1em';
-		span.style.cssText = `
-			display: inline-block;
-			width: 0;
-			height: 0;
-			overflow: visible;
-			pointer-events: none;
-			vertical-align: text-bottom;
-			position: relative;
-			z-index: 1;
-		`;
-		const inner = document.createElement('span');
-		inner.setAttribute('aria-hidden', 'true');
-		if (this.style === 'bar') {
-			inner.className = 'cursor-flash-bar';
-			inner.style.cssText = `
-				position: absolute;
-				left: 0;
-				bottom: 0;
-				width: 3px;
-				height: ${cssHeight};
-				background-color: ${this.markerColor};
-				pointer-events: none;
-			`;
-		} else {
-			inner.className = 'cursor-flash-block-mark';
-			inner.style.cssText = `
-				position: absolute;
-				left: 0;
-				bottom: 0;
-				width: 0.5em;
-				height: ${cssHeight};
-				background-color: ${this.markerColor};
-				color: ${this.contrastColor};
-				pointer-events: none;
-			`;
+	update(update: ViewUpdate) {
+		if (update.docChanged || update.selectionSet || update.geometryChanged || update.viewportChanged) {
+			update.view.requestMeasure(this.buildMeasureReq());
 		}
-		span.appendChild(inner);
-		return span;
 	}
-}
 
-class BarCursorWidget extends WidgetType {
-	constructor(private markerColor: string, private lineHeight: number) {
-		super();
+	destroy() {
+		this.cursorLayer.remove();
 	}
-	toDOM() {
-		// width:0 + overflow:visible ensures the widget takes no space in the text flow,
-		// which prevents it from displacing characters across soft-wrap boundaries.
-		const span = document.createElement('span');
-		span.className = 'cursor-flash-bar';
-		span.style.cssText = `
-			display: inline-block;
-			width: 0;
-			height: ${this.lineHeight}px;
-			overflow: visible;
-			pointer-events: none;
-			vertical-align: text-bottom;
-			position: relative;
-			z-index: 1;
-		`;
-		// The visible cursor is a separate absolutely positioned element
-		const bar = document.createElement('span');
-		bar.style.cssText = `
-			position: absolute;
-			left: 0;
-			top: 0;
-			width: 3px;
-			height: ${this.lineHeight}px;
-			background-color: ${this.markerColor};
-			pointer-events: none;
-		`;
-		span.appendChild(bar);
-		span.setAttribute('aria-hidden', 'true');
-		return span;
+
+	private buildMeasureReq() {
+		const plugin = this.plugin;
+		const cursorLayer = this.cursorLayer;
+
+		return {
+			key: this,
+			read: (view: EditorView): { top: number; left: number; width: number; height: number; color: string } | null => {
+				const mode = plugin.settings.customCursorMode;
+				if (mode === 'off') return null;
+				if (mode === 'flash' && !plugin.flashActive) return null;
+				if (!view.hasFocus) return null;
+
+				const sel = view.state.selection.main;
+				const pos = sel.head;
+				const style = plugin.settings.customCursorStyle;
+
+				// Use selection.assoc to pick the correct visual line at soft-wrap boundaries.
+				// For block cursor this is the key mechanism: sel.assoc of -1 places the
+				// block at the start of the continuation line; assoc of +1 places it at the
+				// end of the wrapped line (over the trailing space).  The keymap handlers in
+				// createBlockCursorNavFilter() manage the assoc transitions when arrowing
+				// across soft-wrap boundaries, mirroring GNU Emacs block cursor behaviour.
+				// Bar / thinbar cursors use the same mechanism (standard Obsidian behaviour).
+				const coords = view.coordsAtPos(pos, sel.assoc || -1);
+				if (!coords) return null;
+
+				// Convert viewport-relative → scrollDOM-relative coordinates
+				const scrollDOM = view.scrollDOM;
+				const scrollRect = scrollDOM.getBoundingClientRect();
+
+				// For block cursor: measure the actual character width by comparing
+				// coordsAtPos(pos, assoc) with coordsAtPos(pos+1, -1), mirroring
+				// codemirror-emacs's measureCursor approach.
+				let charWidth = 0;
+				if (style === 'block') {
+					const doc = view.state.doc;
+					const pos1 = Math.min(doc.length, pos + 1);
+					const rightCoords = pos1 > pos ? view.coordsAtPos(pos1, -1) : null;
+					if (rightCoords && rightCoords.left > coords.left) {
+						charWidth = rightCoords.left - coords.left;
+					} else {
+						// Fallback: use a reasonable character width estimate
+						charWidth = view.defaultCharacterWidth || 10;
+					}
+				}
+
+				return {
+					top: coords.top - scrollRect.top + scrollDOM.scrollTop,
+					left: coords.left - scrollRect.left + scrollDOM.scrollLeft,
+					width: charWidth,  // 0 for bar/thinbar (width handled in write)
+					height: coords.bottom - coords.top,
+					color: plugin.colorProvider.getColor(plugin.settings).color
+				};
+			},
+			write: (measure: { top: number; left: number; width: number; height: number; color: string } | null) => {
+				if (!measure) {
+					cursorLayer.style.display = 'none';
+					return;
+				}
+				cursorLayer.style.display = '';
+
+				if (!this.cursorEl) {
+					this.cursorEl = document.createElement('div');
+					this.cursorEl.className = 'visible-cursor-element';
+					cursorLayer.appendChild(this.cursorEl);
+				}
+
+				const el = this.cursorEl;
+				el.style.position = 'absolute';
+				el.style.top = measure.top + 'px';
+				el.style.left = measure.left + 'px';
+				el.style.height = measure.height + 'px';
+
+				const style = plugin.settings.customCursorStyle;
+				if (style === 'bar') {
+					el.style.width = '3px';
+					el.style.marginLeft = '-1px';
+					el.style.backgroundColor = measure.color;
+					el.style.border = '';
+					el.style.opacity = '';
+					el.style.mixBlendMode = '';
+				} else if (style === 'thinbar') {
+					el.style.width = '2px';
+					el.style.backgroundColor = measure.color;
+					el.style.border = '';
+					el.style.opacity = '';
+					el.style.marginLeft = '';
+					el.style.mixBlendMode = '';
+				} else {
+					// block: covers the character cell using the measured character width.
+					// mix-blend-mode: difference keeps the character text visible through
+					// the highlight (same technique as codemirror-emacs block cursor).
+					el.style.width = measure.width > 0 ? measure.width + 'px' : '0.6em';
+					el.style.backgroundColor = measure.color;
+					el.style.opacity = '0.85';
+					el.style.mixBlendMode = 'difference';
+					el.style.border = '';
+					el.style.marginLeft = '';
+				}
+			}
+		};
 	}
 }
 
@@ -110,21 +159,16 @@ export default class VisibleCursorPlugin extends Plugin {
 	private resetFlashTimeout: NodeJS.Timeout | null = null;
 	private scrollDebounceTimer: NodeJS.Timeout | null = null;
 	private lastScrollPosition: number = 0;
-	private flashActive: boolean = false;
-	private decorationView: EditorView | null = null;
+	flashActive: boolean = false;    // public so CustomCursorViewPlugin can read it
 	private clickFenceActive: boolean = false;
 	private pendingFlashTrigger: string | null = null;
 	private scrollFlashSuppressedUntil: number = 0;
-	private endKeyPressedRecently: boolean = false;
-	private softWrapEndCache: { pos: number; isSoftWrapEnd: boolean } | null = null;
-	private endKeyTimer: NodeJS.Timeout | null = null;
 	private boundStartFence: () => void;
 	private boundEndFenceSoon: () => void;
 	private boundClickEndFence: () => void;
-	private boundKeydownCapture: (e: KeyboardEvent) => void;
 
 	// Services
-	private colorProvider: ColorProvider;
+	colorProvider: ColorProvider;    // public so CustomCursorViewPlugin can read it
 	private flashScheduler: FlashScheduler;
 	private flashRenderer: FlashRenderer;
 
@@ -138,16 +182,26 @@ export default class VisibleCursorPlugin extends Plugin {
 
 		this.addSettingTab(new VisibleCursorSettingTab(this.app, this));
 
-		const decorationPlugin = this.createDecorationPlugin();
+		const pluginRef = this;
+
+		// Register editor extensions:
+		// 1. CustomCursorViewPlugin — codemirror-emacs BlockCursorPlugin pattern
+		// 2. domEventHandlers — scroll-triggered flashes
+		// 3. blockCursorNavFilter — GNU Emacs soft-wrap boundary navigation for block cursor
+		//    (returns an array: [viewTracker ViewPlugin, EditorState.transactionFilter])
 		this.registerEditorExtension([
-			decorationPlugin,
-			this.createDOMEventHandlers()
+			ViewPlugin.define((view) => new CustomCursorViewPlugin(view, pluginRef)),
+			this.createDOMEventHandlers(),
+			...this.createBlockCursorNavFilter()
 		]);
+
+		requestAnimationFrame(() => requestAnimationFrame(() => this.updateCursorStyles()));
 
 		this.registerEvent(
 			this.app.workspace.on('active-leaf-change', () => {
+				requestAnimationFrame(() => this.updateCursorStyles());
 				if (this.settings.flashOnWindowChanges) {
-						requestAnimationFrame(() => requestAnimationFrame(() => this.scheduleFlash('view-change', false)));
+					requestAnimationFrame(() => requestAnimationFrame(() => this.scheduleFlash('view-change', false)));
 				}
 			})
 		);
@@ -163,10 +217,11 @@ export default class VisibleCursorPlugin extends Plugin {
 		this.registerEvent(
 			this.app.workspace.on('css-change', () => {
 				this.app.workspace.updateOptions();
+				requestAnimationFrame(() => this.updateCursorStyles());
 			})
 		);
 
-		// Global click fence: block flash work during pointer->click and a short tail
+		// Global click fence: raised in capture-phase pointerdown
 		this.boundStartFence = () => { this.clickFenceActive = true; };
 		this.boundEndFenceSoon = () => { setTimeout(() => { this.clickFenceActive = false; }, 400); };
 		this.boundClickEndFence = () => { this.boundEndFenceSoon(); };
@@ -174,199 +229,6 @@ export default class VisibleCursorPlugin extends Plugin {
 		window.addEventListener('pointerup', this.boundEndFenceSoon, { capture: true });
 		window.addEventListener('pointercancel', this.boundEndFenceSoon, { capture: true });
 		window.addEventListener('click', this.boundClickEndFence, { capture: true });
-
-		// Capture-phase keydown listener: fires BEFORE CM6 processes the key and calls
-		// update(), so our endKeyPressedRecently flag is correctly set/cleared before
-		// buildDecorations reads it.  (EditorView.domEventHandlers fires at bubble phase,
-		// after CM6's internal handlers — too late to gate this flag.)
-		this.boundKeydownCapture = (e: KeyboardEvent) => {
-			if (e.key === 'End') {
-				this.endKeyPressedRecently = true;
-				if (this.endKeyTimer) clearTimeout(this.endKeyTimer);
-				// Clear after 100ms as a safety margin (one rAF is sufficient on fast machines).
-				this.endKeyTimer = setTimeout(() => {
-					this.endKeyPressedRecently = false;
-					this.endKeyTimer = null;
-				}, 100);
-			} else if (this.endKeyPressedRecently) {
-				// Any other key cancels the End-key window immediately.
-				this.endKeyPressedRecently = false;
-				if (this.endKeyTimer) {
-					clearTimeout(this.endKeyTimer);
-					this.endKeyTimer = null;
-				}
-			}
-		};
-		window.addEventListener('keydown', this.boundKeydownCapture, { capture: true });
-	}
-
-	createDecorationPlugin() {
-		const plugin = this;
-		return ViewPlugin.fromClass(class {
-			decorations: DecorationSet;
-
-			constructor(view: EditorView) {
-				this.decorations = Decoration.none;
-				plugin.decorationView = view;
-			}
-
-			update(update: ViewUpdate) {
-				this.decorations = this.buildDecorations(update);
-			}
-
-			buildDecorations(update: ViewUpdate): DecorationSet {
-				const builder = new RangeSetBuilder();
-				if (!update.view.hasFocus) {
-					return builder.finish() as DecorationSet;
-				}
-
-				const showAlwaysOn = plugin.settings.customCursorMode === 'always';
-				const showFlash = plugin.settings.customCursorMode === 'flash' && plugin.flashActive;
-				const shouldShowCursor = showAlwaysOn || showFlash;
-
-				if (!shouldShowCursor) {
-					return builder.finish() as DecorationSet;
-				}
-
-				const pos = update.view.state.selection.main.head;
-				const markerColor = plugin.colorProvider.getColor(plugin.settings).color;
-				const contrastColor = plugin.colorProvider.getContrastColor(markerColor);
-				// Thinbar uses a slightly darkened color to maintain visual weight at 2px width
-				const thinBarColor = adjustColorForThinBar(markerColor);
-				plugin.updateCursorStyles(markerColor, contrastColor, thinBarColor);
-
-				// Get the actual line height from font-size which is more reliable
-				let actualLineHeight = update.view.defaultLineHeight;
-				try {
-					const domAtPos = update.view.domAtPos(pos);
-					if (domAtPos && domAtPos.node) {
-						const element = domAtPos.node.nodeType === 1
-							? domAtPos.node as HTMLElement
-							: domAtPos.node.parentElement;
-						if (element) {
-							const lineElement = element.closest('.cm-line');
-							if (lineElement) {
-								const computedStyle = getComputedStyle(lineElement);
-								// Use font-size which matches cursor height better
-								const fontSize = computedStyle.fontSize;
-								const parsed = parseFloat(fontSize);
-								if (!isNaN(parsed)) {
-									actualLineHeight = parsed * 1.5; // Approximate line height as 1.5x font size
-								}
-							}
-						}
-					}
-				} catch (e) {
-					// Fallback to default if there's any error
-					actualLineHeight = update.view.defaultLineHeight;
-				}
-
-				if (pos >= update.view.state.doc.length) {
-					if (update.view.state.doc.length > 0) {
-						const isThinBar = plugin.settings.customCursorStyle === 'thinbar';
-						const widgetStyle = (plugin.settings.customCursorStyle === 'bar' || isThinBar) ? 'bar' : 'block';
-						const eolColor = isThinBar ? thinBarColor : markerColor;
-						const widget = Decoration.widget({
-							widget: new EndOfLineWidget(eolColor, contrastColor, widgetStyle, actualLineHeight),
-							side: 1
-						});
-						builder.add(update.view.state.doc.length, update.view.state.doc.length, widget);
-					}
-				} else {
-					const char = update.view.state.doc.sliceString(pos, pos + 1);
-						let isEOL = char === '\n' || char === '';
-	
-						// Soft-wrap end detection. See detectSoftWrapEnd() in src/utils.ts.
-						//
-						// endKeyPressedRecently is the sole reliable discriminator between a
-						// soft-wrap end and a soft-wrap start: both have assoc = -1 and both
-						// produce different coordsAtPos .top values at the boundary.
-						//
-						// The capture-phase window.keydown handler (registered in onload) sets
-						// endKeyPressedRecently = true when End is pressed and clears it on any
-						// other key — before CM6 processes the keystroke and calls update().
-						// After →, the flag is false by the time buildDecorations runs.
-						const assoc = update.view.state.selection.main.assoc;
-						const docLine = update.view.state.doc.lineAt(pos);
-	
-<<<<<<< HEAD
-					// Also check if the emacs-text-editor plugin signalled a move-to-end
-					// action. The emacs plugin exposes a capture-phase flag so that any
-					// key binding the user assigns to "move-end-of-line" is handled
-					// correctly, not just the default Ctrl+E.
-					const emacsPlugin = (plugin.app as any)?.plugins?.plugins?.['emacs-text-editor'];
-					const emacsMoveToEndRecently = emacsPlugin?.moveToEndRecently === true;
-=======
-						// Also check if the emacs-text-editor plugin signalled a move-to-end
-						// action via a Transaction.userEvent annotation.
-						const emacsMoveToEndRecently = update.transactions.some(tr =>
-							tr.isUserEvent("emacs.moveToEnd")
-						);
-	
-						const isSoftWrapEnd = detectSoftWrapEnd({
-							lineWrapping: update.view.lineWrapping,
-							isEOL,
-							isMidDocLine: pos > docLine.from,
-							assoc,
-							endKeyPressedRecently: plugin.endKeyPressedRecently || emacsMoveToEndRecently,
-							coordsLeftTop: undefined,
-							coordsRightTop: undefined,
-							actualLineHeight
-						});
->>>>>>> bfce3a0e6d29cea1eee7c7551865f1fd5533cfe3
-
-					const isSoftWrapEnd = detectSoftWrapEnd({
-						lineWrapping: view.lineWrapping,
-						isEOL,
-						isMidDocLine: pos >= docLine.from,
-						assoc,
-						endKeyPressedRecently: plugin.endKeyPressedRecently || emacsMoveToEndRecently,
-						coordsLeftTop: undefined,
-						coordsRightTop: undefined,
-						actualLineHeight
-					});
-
-				if (isEOL || isSoftWrapEnd) {
-						// For soft-wrap ends use side:-1 so the widget appears at the end of the current
-						// visual line rather than at the start of the next one.
-						const widgetSide = isSoftWrapEnd ? -1 : 1;
-						// thinbar uses the same EOL widget style as bar (a thin vertical line)
-						// but with an adjusted color for visual weight compensation
-						const isThinBar = plugin.settings.customCursorStyle === 'thinbar';
-						const widgetStyle = (plugin.settings.customCursorStyle === 'bar' || isThinBar) ? 'bar' : 'block';
-						const eolColor = isThinBar ? thinBarColor : markerColor;
-						const widget = Decoration.widget({
-							widget: new EndOfLineWidget(eolColor, contrastColor, widgetStyle, actualLineHeight),
-							side: widgetSide
-						});
-						builder.add(pos, pos, widget);
-					} else {
-						// Do not place a mark at pos === docLine.from when line wrapping is active —
-						// that position may be a soft-wrap start, and placing a mark there
-						// interferes with CM6's vertical navigation causing line skipping.
-						const isSoftWrapStart = view.lineWrapping && pos === docLine.from && pos > 0;
-						if (!isSoftWrapStart) {
-							let markClass: string;
-							if (plugin.settings.customCursorStyle === 'bar') {
-								markClass = 'cursor-flash-bar-mark';
-							} else if (plugin.settings.customCursorStyle === 'thinbar') {
-								markClass = 'cursor-flash-thinbar-mark';
-							} else {
-								markClass = 'cursor-flash-block-mark';
-							}
-							const decoration = Decoration.mark({
-								attributes: { class: markClass }
-							});
-							builder.add(pos, pos + 1, decoration);
-						}
-					}
-				}
-
-				return builder.finish() as DecorationSet;
-			}
-		}, {
-			decorations: (v: any) => v.decorations
-		});
 	}
 
 	createDOMEventHandlers() {
@@ -380,9 +242,6 @@ export default class VisibleCursorPlugin extends Plugin {
 				const scrollDelta = Math.abs(currentScrollPos - plugin.lastScrollPosition);
 				plugin.lastScrollPosition = currentScrollPos;
 
-				// While a flash is active (or was recently shown), keep extending the
-				// suppression window and cancel any pending debounce.  This prevents
-				// momentum / inertial scrolling from triggering a second flash.
 				const now = Date.now();
 				if (plugin.flashActive || now < plugin.scrollFlashSuppressedUntil) {
 					plugin.scrollFlashSuppressedUntil = now + 300;
@@ -406,6 +265,79 @@ export default class VisibleCursorPlugin extends Plugin {
 				return false;
 			}
 		});
+	}
+
+	/**
+	 * GNU Emacs block cursor navigation filter.
+	 *
+	 * In GNU Emacs, a block cursor at a soft-wrap boundary works as follows:
+	 *   • When the cursor is at the last position of a wrapped line (visually covering
+	 *     the trailing space), pressing ArrowRight should NOT advance the document offset
+	 *     — it should snap the cursor to the first character of the continuation line
+	 *     (same document offset, assoc flipped to -1).
+	 *   • From there, ArrowRight advances the document offset to the second character.
+	 *   • Pressing ArrowLeft when at start-of-continuation-line (assoc=-1) at a soft-wrap
+	 *     boundary snaps back to assoc=+1 (end of wrapped line) without changing offset.
+	 *
+	 * Implementation: we use a highest-priority keymap so our handlers run BEFORE CM6's
+	 * own arrow-key bindings.  This is the only reliable way to intercept before CM6
+	 * consumes the event.  coordsAtPos is safe to call here because the DOM is stable
+	 * at the point the keymap fires (between layout frames, BEFORE the transaction).
+	 *
+	 * This filter is only active when customCursorStyle === 'block'.
+	 * Bar / thinbar cursors are completely unaffected because the keymap handlers return
+	 * false when the block cursor style is not active.
+	 */
+	createBlockCursorNavFilter() {
+		const plugin = this;
+
+		const handleRight = (view: EditorView): boolean => {
+			if (plugin.settings.customCursorStyle !== 'block') return false;
+			const sel = view.state.selection.main;
+			if (!sel.empty) return false;
+			const pos = sel.head;
+			const coordsAfter  = view.coordsAtPos(pos, 1);
+			const coordsBefore = view.coordsAtPos(pos, -1);
+			if (!coordsAfter || !coordsBefore) return false;
+			const atSoftWrap = Math.abs(coordsAfter.top - coordsBefore.top) > 1;
+			if (!atSoftWrap) return false;
+
+			if (sel.assoc > 0) {
+				// At end-of-wrapped-line: snap to start of continuation line
+				view.dispatch({ selection: EditorSelection.cursor(pos, -1), scrollIntoView: true });
+				return true;
+			}
+			// assoc <= 0: let CM6 move forward normally (to pos+1)
+			return false;
+		};
+
+		const handleLeft = (view: EditorView): boolean => {
+			if (plugin.settings.customCursorStyle !== 'block') return false;
+			const sel = view.state.selection.main;
+			if (!sel.empty) return false;
+			const pos = sel.head;
+			const coordsAfter  = view.coordsAtPos(pos, 1);
+			const coordsBefore = view.coordsAtPos(pos, -1);
+			if (!coordsAfter || !coordsBefore) return false;
+			const atSoftWrap = Math.abs(coordsAfter.top - coordsBefore.top) > 1;
+			if (!atSoftWrap) return false;
+
+			if (sel.assoc < 0) {
+				// At start-of-continuation-line: snap back to end of wrapped line
+				view.dispatch({ selection: EditorSelection.cursor(pos, 1), scrollIntoView: true });
+				return true;
+			}
+			// assoc >= 0: let CM6 move backward normally (to pos-1)
+			return false;
+		};
+
+		// Use Prec.highest so our keymap overrides CM6's built-in ArrowRight/Left handlers
+		return [
+			Prec.highest(keymap.of([
+				{ key: 'ArrowRight', run: handleRight },
+				{ key: 'ArrowLeft',  run: handleLeft  },
+			]))
+		];
 	}
 
 	scheduleFlash(trigger: string, isMouseClick: boolean) {
@@ -440,7 +372,6 @@ export default class VisibleCursorPlugin extends Plugin {
 		const editorView = (view.editor as any).cm as EditorView;
 		if (!editorView) return;
 
-		// Cancel any pending scroll debounce so it can't fire after this flash
 		if (this.scrollDebounceTimer) {
 			clearTimeout(this.scrollDebounceTimer);
 			this.scrollDebounceTimer = null;
@@ -454,45 +385,44 @@ export default class VisibleCursorPlugin extends Plugin {
 			this.showLineFlashRightToLeft(editorView);
 		}
 
-		// Always set flashActive as a cooldown guard to prevent
-		// double-triggering (e.g. scroll → showFlash → layout shift → scroll)
 		this.flashActive = true;
-		if (this.resetFlashTimeout) {
-			clearTimeout(this.resetFlashTimeout);
+		if (this.settings.customCursorMode === 'flash') {
+			document.body.classList.add('visible-cursor-flash-active');
 		}
 
-		// Only dispatch when customCursorMode is 'flash' (to toggle the decoration).
-		// Allow dispatch during click fence for view-change/layout-change triggers.
-		const isViewFlashTrigger = this.pendingFlashTrigger === 'view-change' || this.pendingFlashTrigger === 'layout-change';
-		if (this.settings.customCursorMode === 'flash') {
-			if (isViewFlashTrigger || !this.clickFenceActive) { editorView.dispatch({}); }
+		if (this.resetFlashTimeout) {
+			clearTimeout(this.resetFlashTimeout);
 		}
 
 		this.resetFlashTimeout = this.flashScheduler.scheduleReset(() => {
 			this.flashActive = false;
 			if (this.settings.customCursorMode === 'flash') {
-				editorView.dispatch({});
+				document.body.classList.remove('visible-cursor-flash-active');
 			}
 		}, this.settings.lineDuration);
 	}
 
-	showLineFlash(editorView: EditorView) {
+	/** Get cursor coords using selection.assoc for correct soft-wrap boundary handling */
+	private cursorCoords(editorView: EditorView): { top: number; bottom: number; left: number; right: number } | null {
 		const cursor = this.app.workspace.getActiveViewOfType(MarkdownView)?.editor;
-		if (!cursor) return;
-
+		if (!cursor) return null;
 		const pos = (cursor as any).posToOffset(cursor.getCursor());
-		const coords = editorView.coordsAtPos(pos);
+		const assoc = editorView.state.selection.main.assoc || -1;
+		return editorView.coordsAtPos(pos, assoc);
+	}
+
+	showLineFlash(editorView: EditorView) {
+		const coords = this.cursorCoords(editorView);
 		if (!coords) return;
 
 		const editorElement = editorView.contentDOM;
 		const editorRect = editorElement.getBoundingClientRect();
 		const lineHeight = editorView.defaultLineHeight;
 		const { color, opacity } = this.colorProvider.getColor(this.settings);
-		const rgb = hexToRgb(color);
-		// Calculate highlight distance based on flashSize setting (in character widths)
+		const rgb = this.colorProvider.resolveColorToRgb(color);
 		const fontSize = parseFloat(getComputedStyle(editorElement).fontSize) || 16;
-		const charWidth = fontSize * 0.6; // Approximate character width
-		const highlightDistance = this.settings.flashSize * charWidth; // Direct width in pixels
+		const charWidth = fontSize * 0.6;
+		const highlightDistance = this.settings.flashSize * charWidth;
 		const highlightPercent = Math.min(100, (highlightDistance / editorRect.width) * 100);
 
 		const colorStop = `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${opacity})`;
@@ -512,27 +442,21 @@ export default class VisibleCursorPlugin extends Plugin {
 			z-index: 1;
 			animation: flash-line-fade ${this.settings.lineDuration}ms ease-out;
 		`;
-
 		this.flashRenderer.render('left', cssText, this.settings.lineDuration);
 	}
 
 	showLineFlashRightToLeft(editorView: EditorView) {
-		const cursor = this.app.workspace.getActiveViewOfType(MarkdownView)?.editor;
-		if (!cursor) return;
-
-		const pos = (cursor as any).posToOffset(cursor.getCursor());
-		const coords = editorView.coordsAtPos(pos);
+		const coords = this.cursorCoords(editorView);
 		if (!coords) return;
 
 		const editorElement = editorView.contentDOM;
 		const editorRect = editorElement.getBoundingClientRect();
 		const lineHeight = editorView.defaultLineHeight;
 		const { color, opacity } = this.colorProvider.getColor(this.settings);
-		const rgb = hexToRgb(color);
-		// Calculate highlight distance based on flashSize setting (in character widths)
+		const rgb = this.colorProvider.resolveColorToRgb(color);
 		const fontSize = parseFloat(getComputedStyle(editorElement).fontSize) || 16;
-		const charWidth = fontSize * 0.6; // Approximate character width
-		const highlightDistance = this.settings.flashSize * charWidth; // Direct width in pixels
+		const charWidth = fontSize * 0.6;
+		const highlightDistance = this.settings.flashSize * charWidth;
 		const highlightPercent = Math.min(100, (highlightDistance / editorRect.width) * 100);
 
 		const colorStop = `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${opacity})`;
@@ -552,16 +476,11 @@ export default class VisibleCursorPlugin extends Plugin {
 			z-index: 1;
 			animation: flash-line-fade ${this.settings.lineDuration}ms ease-out;
 		`;
-
 		this.flashRenderer.render('right', cssText, this.settings.lineDuration);
 	}
 
 	showCursorCenteredFlash(editorView: EditorView) {
-		const cursor = this.app.workspace.getActiveViewOfType(MarkdownView)?.editor;
-		if (!cursor) return;
-
-		const pos = (cursor as any).posToOffset(cursor.getCursor());
-		const coords = editorView.coordsAtPos(pos);
+		const coords = this.cursorCoords(editorView);
 		if (!coords) return;
 
 		const editorElement = editorView.contentDOM;
@@ -571,14 +490,13 @@ export default class VisibleCursorPlugin extends Plugin {
 		const editorWidth = editorRect.width;
 		const cursorPercent = (cursorX / editorWidth) * 100;
 		const { color, opacity } = this.colorProvider.getColor(this.settings);
-		const rgb = hexToRgb(color);
+		const rgb = this.colorProvider.resolveColorToRgb(color);
 
 		const peakOpacity = opacity;
 		const fadeOpacity = opacity * 0.75;
-		// Calculate spread distance based on flashSize setting (in character widths)
 		const fontSize = parseFloat(getComputedStyle(editorElement).fontSize) || 16;
-		const charWidth = fontSize * 0.6; // Approximate character width
-		const spreadDistance = (this.settings.flashSize / 2) * charWidth; // flashSize/2 on each side
+		const charWidth = fontSize * 0.6;
+		const spreadDistance = (this.settings.flashSize / 2) * charWidth;
 		const spreadPercent = (spreadDistance / editorRect.width) * 100;
 		const leftEdge = Math.max(0, cursorPercent - spreadPercent);
 		const rightEdge = Math.min(100, cursorPercent + spreadPercent);
@@ -602,92 +520,53 @@ export default class VisibleCursorPlugin extends Plugin {
 			z-index: 1;
 			animation: flash-line-fade ${this.settings.lineDuration}ms ease-out;
 		`;
-
 		this.flashRenderer.render('centered', cssText, this.settings.lineDuration);
 	}
 
-
-
-	private updateCursorStyles(markerColor: string, contrastColor: string, thinBarColor?: string): void {
+	updateCursorStyles(): void {
 		if (this.styleElement) {
 			this.styleElement.remove();
+			this.styleElement = null;
 		}
-		
+
+		const mode = this.settings.customCursorMode;
+
 		this.styleElement = document.createElement('style');
 		this.styleElement.id = 'cursor-flash-dynamic-styles';
-		
-		const tbColor = thinBarColor ?? markerColor;
-		
-		// Block cursor: highlight the character with a background color.
-		// Bar/thinbar cursor: draw a thin vertical bar before the character using ::before pseudo-element.
-		// Using Decoration.mark (not widget) for all, so no DOM nodes are inserted between
-		// text characters — this prevents the cursor decoration from affecting word-wrap.
-		const styleContent = `
-			.cursor-flash-block-mark {
-				background-color: ${markerColor} !important;
-				color: ${contrastColor} !important;
-				position: relative;
-			}
-			.cursor-flash-bar-mark {
-				position: relative;
-			}
-			.cursor-flash-bar-mark::before {
-				content: '';
-				position: absolute;
-				left: 0;
-				top: 0;
-				bottom: 0;
-				width: 3px;
-				background-color: ${markerColor};
-				pointer-events: none;
-				z-index: 2;
-			}
-			.cursor-flash-thinbar-mark {
-				position: relative;
-			}
-			.cursor-flash-thinbar-mark::before {
-				content: '';
-				position: absolute;
-				left: 0;
-				top: 0;
-				bottom: 0;
-				width: 2px;
-				background-color: ${tbColor};
-				pointer-events: none;
-				z-index: 2;
-			}
-		`;
-		
-		this.styleElement.textContent = styleContent;
+
+		if (mode === 'off') {
+			document.head.appendChild(this.styleElement);
+			return;
+		}
+
+		// Hide native browser caret so it doesn't appear alongside our custom cursor.
+		// In 'flash' mode, only suppress the caret during active flash windows.
+		const caretScope = mode === 'flash'
+			? 'body.visible-cursor-flash-active .cm-editor.cm-focused .cm-content'
+			: '.cm-editor.cm-focused .cm-content';
+
+		this.styleElement.textContent = `
+${caretScope} {
+	caret-color: transparent !important;
+}`;
 		document.head.appendChild(this.styleElement);
 	}
 
-
-
 	refreshDecorations() {
-		if (this.decorationView && this.decorationView.hasFocus) {
-			// Force a rebuild by dispatching with selection change to trigger update
-			this.decorationView.dispatch({
-				selection: this.decorationView.state.selection
-			});
-		}
+		this.updateCursorStyles();
 	}
 
 	async loadSettings() {
 		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
-		// Migrate old setting names and values
 		const anySettings = this.settings as any;
-		// Migrate 'blockCursorMode' to 'customCursorMode'
 		if (anySettings.blockCursorMode !== undefined && anySettings.customCursorMode === undefined) {
 			anySettings.customCursorMode = anySettings.blockCursorMode;
 			delete anySettings.blockCursorMode;
 		}
-		// Migrate 'blockCursorStyle' to 'customCursorStyle'
 		if (anySettings.blockCursorStyle !== undefined && anySettings.customCursorStyle === undefined) {
 			anySettings.customCursorStyle = anySettings.blockCursorStyle;
 			delete anySettings.blockCursorStyle;
 		}
-		// Migrate old 'thick-vertical' setting value to 'bar'
 		if (anySettings.customCursorStyle === 'thick-vertical') {
 			anySettings.customCursorStyle = 'bar';
 		}
@@ -699,26 +578,14 @@ export default class VisibleCursorPlugin extends Plugin {
 	}
 
 	onunload() {
-		if (this.styleElement) {
-			this.styleElement.remove();
-		}
-		if (this.flashTimeout) {
-			clearTimeout(this.flashTimeout);
-		}
-		if (this.resetFlashTimeout) {
-			clearTimeout(this.resetFlashTimeout);
-		}
-		if (this.scrollDebounceTimer) {
-			clearTimeout(this.scrollDebounceTimer);
-		}
-		if (this.endKeyTimer) {
-			clearTimeout(this.endKeyTimer);
-		}
-		// Remove global event listeners added in onload
+		if (this.styleElement) this.styleElement.remove();
+		document.body.classList.remove('visible-cursor-flash-active');
+		if (this.flashTimeout) clearTimeout(this.flashTimeout);
+		if (this.resetFlashTimeout) clearTimeout(this.resetFlashTimeout);
+		if (this.scrollDebounceTimer) clearTimeout(this.scrollDebounceTimer);
 		window.removeEventListener('pointerdown', this.boundStartFence, { capture: true });
 		window.removeEventListener('pointerup', this.boundEndFenceSoon, { capture: true });
 		window.removeEventListener('pointercancel', this.boundEndFenceSoon, { capture: true });
 		window.removeEventListener('click', this.boundClickEndFence, { capture: true });
-		window.removeEventListener('keydown', this.boundKeydownCapture, { capture: true });
 	}
 }
