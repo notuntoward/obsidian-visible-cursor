@@ -322,17 +322,66 @@ export default class VisibleCursorPlugin extends Plugin {
 		// Expose to buildMeasureReq via plugin instance
 		(plugin as any)._blockWrapState = () => blockWrapState;
 
-		// Detects whether a document position sits at a soft-wrap boundary.
-		const isSoftWrap = (view: EditorView, pos: number): boolean => {
+		// Inter-plugin API: expose _visibleCursorForwardChar on the window object so
+		// that other plugins can integrate with the block cursor soft-wrap behavior.
+		// Usage in another plugin:
+		//   const helper = (window as any)._visibleCursorForwardChar;
+		//   if (helper && helper(view)) return; // skip own advance
+		//   // ...do own advance...
+		// Returns true if the forward-char was handled (block showed first char of
+		// continuation line, caller should NOT advance further this keypress).
+		// Returns false if the caller should proceed with its normal advance.
+		(window as any)._visibleCursorForwardChar = (view: EditorView): boolean => {
+			if (plugin.settings.customCursorStyle !== 'block') return false;
+			const sel = view.state.selection.main;
+			if (!sel.empty) return false;
+			const pos = sel.head;
+
+			if (blockWrapState && blockWrapState.logicalPos === pos) {
+				// Already showing line-2-start; allow caller's advance (P+1)
+				blockWrapState = null;
+				return false;
+			}
+
+			// Check if at soft-wrap boundary (reliable here since called at render time
+			// or in response to a user action, not inside a transaction)
 			const a = view.coordsAtPos(pos, 1);
 			const b = view.coordsAtPos(pos, -1);
-			return !!(a && b && Math.abs(a.top - b.top) > 1);
+			if (a && b && Math.abs(a.top - b.top) > 1) {
+				// At wrap boundary — snap to line-2-start and suppress caller's advance
+				blockWrapState = { logicalPos: pos, showPos: pos, assoc: 1 };
+				view.dispatch({ selection: EditorSelection.cursor(pos, 1) });
+				return true; // caller should NOT advance
+			}
+
+			return false; // not at wrap boundary, caller proceeds normally
+		};
+
+		// Detects whether a document position sits at a soft-wrap boundary.
+		const isSoftWrap = (view: EditorView, pos: number): boolean => {
+			const line = view.state.doc.lineAt(pos);
+			
+			// 1. If we are at the end of a physical line (\n), it is NOT a soft wrap.
+			if (pos === line.to) return false;
+
+			// 2. Check if the vertical position changes at the same logical index.
+			const coordsBefore = view.coordsAtPos(pos, -1);
+			const coordsAfter = view.coordsAtPos(pos, 1);
+			
+			if (!coordsBefore || !coordsAfter) return false;
+			
+			// If the top coordinate differs, the line has wrapped visually.
+			return Math.abs(coordsBefore.top - coordsAfter.top) > 1;
 		};
 
 		// ── HandleRight ─────────────────────────────────────────────────────────
 		// If blockWrapState is active for the current pos (set by updateListener on
 		// rightward arrival at wrap boundary P): the block is already showing line-2
 		// start.  Clear the state and let CM6 advance to P+1.
+		//
+		// NEW: Also handles the case where cursor landed at a soft-wrap boundary
+		// via End key, mouse click, or other jump (assoc=-1).  Pressing → should
+		// snap to assoc=1 (show first char of next line) instead of advancing to P+1.
 		const handleRight = (view: EditorView): boolean => {
 			if (plugin.settings.customCursorStyle !== 'block') return false;
 			const sel = view.state.selection.main;
@@ -343,6 +392,14 @@ export default class VisibleCursorPlugin extends Plugin {
 				// Block is showing line-2-start; this press advances to P+1
 				blockWrapState = null;
 				return false;  // let CM6 advance normally
+			}
+
+			// NEW: Check if we're at a soft-wrap boundary with assoc !== 1
+			// (e.g., after End key or mouse click).  Snap to assoc=1 instead of advancing.
+			if (sel.assoc !== 1 && isSoftWrap(view, pos)) {
+				blockWrapState = { logicalPos: pos, showPos: pos, assoc: 1 };
+				view.dispatch({ selection: EditorSelection.cursor(pos, 1) });
+				return true;  // handled: don't let CM6 advance
 			}
 
 			blockWrapState = null;
@@ -369,10 +426,9 @@ export default class VisibleCursorPlugin extends Plugin {
 			if (!update.selectionSet && !update.docChanged) return;
 			const sel = update.state.selection.main;
 
-			// Clear stale blockWrapState if cursor moved away from logicalPos
+			// Clear state if the cursor moves away
 			if (blockWrapState !== null) {
-				const logicalPos = blockWrapState.logicalPos;
-				if (update.docChanged || !sel.empty || sel.head !== logicalPos) {
+				if (update.docChanged || !sel.empty || sel.head !== blockWrapState.logicalPos) {
 					blockWrapState = null;
 				}
 			}
@@ -385,22 +441,15 @@ export default class VisibleCursorPlugin extends Plugin {
 			const pos = sel.head;
 			const oldSel = update.startState.selection.main;
 
-			// Only for keyboard rightward moves (not pointer clicks)
-			const isKeyboardMove = update.transactions.some(t =>
-				t.isUserEvent('move') || (t.isUserEvent('select') && !t.isUserEvent('select.pointer'))
-			);
-			if (!isKeyboardMove) return;
+			// Skip manual selection jumps via mouse
+			if (update.transactions.some(t => t.isUserEvent('select.pointer'))) return;
 
-			// Single-character ArrowRight arrived at soft-wrap boundary P:
-			//   - Dispatch cursor(P, +1) to flip sel.assoc to +1 so the block
-			//     cursor shows at the START of the continuation line (first char).
-			//   - Set blockWrapState so the next → press knows to advance to P+1.
-			// The pos - oldSel.head === 1 check excludes End key and other jumps.
-			// The resulting dispatch has pos - oldSel.head = 0, so the updateListener
-			// won't recurse.
+			// ONLY intercept if the user is moving exactly 1 character forward (Right Arrow)
+			// This allows the "End" key to land at assoc: -1 (end of current line) normally.
+			// The resulting dispatch has pos - oldSel.head = 0, so this won't recurse.
 			if (pos - oldSel.head === 1 && isSoftWrap(update.view, pos)) {
+				// "Arm" the wrap state and force association to the next visual line
 				blockWrapState = { logicalPos: pos, showPos: pos, assoc: 1 };
-				// Dispatch to set sel.assoc=1 so buildMeasureReq shows line-2-start
 				update.view.dispatch({
 					selection: EditorSelection.cursor(pos, 1)
 				});
@@ -663,5 +712,6 @@ ${caretScope} {
 		window.removeEventListener('pointerup', this.boundEndFenceSoon, { capture: true });
 		window.removeEventListener('pointercancel', this.boundEndFenceSoon, { capture: true });
 		window.removeEventListener('click', this.boundClickEndFence, { capture: true });
+		delete (window as any)._visibleCursorForwardChar;
 	}
 }
