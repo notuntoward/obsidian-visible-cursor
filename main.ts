@@ -317,6 +317,7 @@ export default class VisibleCursorPlugin extends Plugin {
 
 		let blockWrapState: { logicalPos: number; showPos: number; assoc: 1 | -1 } | null = null;
 		let pendingDownFromWrapPos: number | null = null;
+		let pendingUpFromPos: number | null = null;
 
 		// Expose to buildMeasureReq via plugin instance
 		(plugin as any)._blockWrapState = () => blockWrapState;
@@ -390,6 +391,54 @@ export default class VisibleCursorPlugin extends Plugin {
 			}
 
 			return null;
+		};
+
+		const findStartOfPreviousVisualLineFromWrap = (
+			view: EditorView,
+			pos: number
+		): { pos: number; isSoftWrap: boolean } | null => {
+			const doc = view.state.doc;
+			const line = doc.lineAt(pos);
+
+			if (pos === line.from) {
+				// At the start of a logical line → go to the previous logical line's
+				// last visual segment.
+				if (line.number <= 1) return null; // top of document
+				const prevLine = doc.line(line.number - 1);
+
+				const endCoords = view.coordsAtPos(prevLine.to, -1);
+				if (!endCoords) return { pos: prevLine.from, isSoftWrap: false };
+
+				const endTop = endCoords.top;
+				for (let p = prevLine.to - 1; p >= prevLine.from; p--) {
+					const c = view.coordsAtPos(p, 1);
+					if (c && c.top < endTop - 1) {
+						// p+1 is the start of the last visual segment of prevLine
+						return { pos: p + 1, isSoftWrap: true };
+					}
+				}
+				return { pos: prevLine.from, isSoftWrap: false };
+			}
+
+			// Within a wrapped logical line: find the start of the visual line
+			// above the one that starts at `pos`.
+			// coordsAtPos(pos, -1) gives the end of the previous visual line.
+			const aboveCoords = view.coordsAtPos(pos, -1);
+			if (!aboveCoords) return null;
+			const aboveTop = aboveCoords.top;
+
+			// Scan backward with assoc=1; when coordsAtPos(p,1).top drops below
+			// aboveTop, p+1 is where the "above" visual line begins.
+			for (let p = pos - 1; p >= line.from; p--) {
+				const c = view.coordsAtPos(p, 1);
+				if (!c) continue;
+				if (c.top < aboveTop - 1) {
+					return { pos: p + 1, isSoftWrap: true };
+				}
+			}
+
+			// No earlier wrap: the visual line starts at the logical-line start
+			return { pos: line.from, isSoftWrap: false };
 		};
 
 		const handleRight = (view: EditorView): boolean => {
@@ -474,6 +523,54 @@ export default class VisibleCursorPlugin extends Plugin {
 			return true;
 		};
 
+		const handleUp = (view: EditorView): boolean => {
+			if (plugin.settings.customCursorStyle !== 'block') return false;
+
+			const sel = view.state.selection.main;
+			if (!sel.empty) return false;
+
+			const pos = sel.head;
+
+			// CASE 1: Cursor is at a known wrap boundary (blockWrapState active,
+			// visually at the start of a continuation line).  Compute the target
+			// ourselves — symmetric to handleDown's findStartOfNextVisualLineFromWrap.
+			if (blockWrapState && blockWrapState.logicalPos === pos && blockWrapState.assoc === 1) {
+				pendingUpFromPos = null; // clear any stale flag
+
+				const target = findStartOfPreviousVisualLineFromWrap(view, pos);
+				console.log('VISIBLE-CURSOR handleUp CASE1', {
+					pos, target, blockWrapState
+				});
+
+				if (!target) {
+					blockWrapState = null;
+					return false; // top of document — let CM6 handle
+				}
+
+				if (target.isSoftWrap) {
+					blockWrapState = { logicalPos: target.pos, showPos: target.pos, assoc: 1 };
+					pendingDownFromWrapPos = target.pos;
+				} else {
+					blockWrapState = null;
+					pendingDownFromWrapPos = null;
+				}
+
+				view.dispatch({
+					selection: EditorSelection.cursor(target.pos, 1),
+					scrollIntoView: true
+				});
+				return true;
+			}
+
+			// CASE 2: Cursor NOT at a known wrap boundary.
+			// Let CM6 handle the movement; navCorrection fixes assoc if needed.
+			pendingUpFromPos = pos;
+			console.log('VISIBLE-CURSOR handleUp CASE2', {
+				pos, selAssoc: sel.assoc, blockWrapState
+			});
+			return false;
+		};
+
 		const navCorrection = EditorView.updateListener.of((update: ViewUpdate) => {
 			if (!update.selectionSet && !update.docChanged) return;
 
@@ -488,6 +585,12 @@ export default class VisibleCursorPlugin extends Plugin {
 			if (pendingDownFromWrapPos !== null) {
 				if (update.docChanged || !sel.empty) {
 					pendingDownFromWrapPos = null;
+				}
+			}
+
+			if (pendingUpFromPos !== null) {
+				if (update.docChanged || !sel.empty) {
+					pendingUpFromPos = null;
 				}
 			}
 
@@ -507,6 +610,34 @@ export default class VisibleCursorPlugin extends Plugin {
 				update.view.dispatch({
 					selection: EditorSelection.cursor(pos, 1)
 				});
+				return;
+			}
+
+			// Handle Up arrow landing on a soft-wrap boundary:
+			// CM6's default cursorLineUp may assign assoc ≤ 0, causing the block
+			// cursor to render at the end of the visual line above instead of the
+			// start of the continuation line.  Fix by detecting the boundary and
+			// re-dispatching with assoc=1 (same technique as right-arrow above).
+			if (pendingUpFromPos !== null) {
+				const fromPos = pendingUpFromPos;
+				pendingUpFromPos = null;
+				const isWrap = isSoftWrap(update.view, pos);
+				console.log('VISIBLE-CURSOR navCorrection pendingUp', {
+					pos,
+					fromPos,
+					selAssoc: sel.assoc,
+					posChanged: pos !== fromPos,
+					isWrap,
+					blockWrapState
+				});
+				if (pos !== fromPos && isWrap) {
+					blockWrapState = { logicalPos: pos, showPos: pos, assoc: 1 };
+					pendingDownFromWrapPos = pos;
+					update.view.dispatch({
+						selection: EditorSelection.cursor(pos, 1)
+					});
+					return;
+				}
 			}
 		});
 
@@ -515,6 +646,7 @@ export default class VisibleCursorPlugin extends Plugin {
 				{ key: 'ArrowRight', run: handleRight },
 				{ key: 'ArrowLeft', run: handleLeft },
 				{ key: 'ArrowDown', run: handleDown },
+				{ key: 'ArrowUp', run: handleUp },
 			])),
 			navCorrection
 		];
