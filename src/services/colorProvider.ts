@@ -11,6 +11,22 @@ import {
  * Pure functions - no Obsidian API dependencies
  */
 export class ColorProvider {
+  private colorCache: Map<string, { r: number; g: number; b: number }> = new Map();
+  private themeColorsCache: {
+    accent: string | null;
+    bg: string | null;
+    text: string | null;
+    textOnAccent: string | null;
+  } = { accent: null, bg: null, text: null, textOnAccent: null };
+
+  /**
+   * Clear the color cache (e.g., when theme changes)
+   */
+  clearCache(): void {
+    this.colorCache.clear();
+    this.themeColorsCache = { accent: null, bg: null, text: null, textOnAccent: null };
+  }
+
   /**
    * Get the cursor color based on settings and theme
    */
@@ -31,9 +47,15 @@ export class ColorProvider {
    * Resolve CSS colors (including color-mix, var(), etc.) to RGB values
    */
   resolveColorToRgb(color: string): { r: number; g: number; b: number } {
+    if (this.colorCache.has(color)) {
+      return this.colorCache.get(color)!;
+    }
+
     // First try parsing as hex or rgb
     if (color.startsWith('#') || color.startsWith('rgb')) {
-      return hexToRgb(color);
+      const rgb = hexToRgb(color);
+      this.colorCache.set(color, rgb);
+      return rgb;
     }
 
     // For color-mix, var(), or other CSS functions, use a temporary element
@@ -47,18 +69,22 @@ export class ColorProvider {
       // Parse the computed rgb() or rgba() value
       const matches = computed.match(/\d+/g);
       if (matches && matches.length >= 3) {
-        return {
+        const rgb = {
           r: parseInt(matches[0]),
           g: parseInt(matches[1]),
           b: parseInt(matches[2]),
         };
+        this.colorCache.set(color, rgb);
+        return rgb;
       }
     } catch (e) {
       // Fall through to default
     }
 
     // Default fallback
-    return { r: 100, g: 150, b: 255 };
+    const defaultRgb = { r: 100, g: 150, b: 255 };
+    this.colorCache.set(color, defaultRgb);
+    return defaultRgb;
   }
 
   /**
@@ -66,24 +92,20 @@ export class ColorProvider {
    * Uses WCAG contrast ratio calculations
    */
   getContrastColor(cursorBackgroundColor: string): string {
-    const computedStyle = getComputedStyle(document.body);
+    if (this.themeColorsCache.bg === null) {
+      const computedStyle = getComputedStyle(document.body);
+      this.themeColorsCache.bg = computedStyle.getPropertyValue('--background-primary').trim() || '#ffffff';
+      this.themeColorsCache.text = computedStyle.getPropertyValue('--text-normal').trim() || '#000000';
+      this.themeColorsCache.textOnAccent = computedStyle.getPropertyValue('--text-on-accent').trim();
+    }
 
-    // Get theme colors for candidate text colors
-    const bgColor = computedStyle.getPropertyValue('--background-primary').trim() || '#ffffff';
-    const textColor = computedStyle.getPropertyValue('--text-normal').trim() || '#000000';
-    const textOnAccent = computedStyle.getPropertyValue('--text-on-accent').trim();
+    const bgColor = this.themeColorsCache.bg!;
+    const textColor = this.themeColorsCache.text!;
+    const textOnAccent = this.themeColorsCache.textOnAccent;
 
     // Resolve the cursor background color to RGB for contrast calculation
-    // This handles CSS variables like --interactive-accent
-    let resolvedCursorColor = cursorBackgroundColor;
-    if (cursorBackgroundColor.startsWith('var(') || cursorBackgroundColor.startsWith('color-mix')) {
-      // Create temp element to resolve the color
-      const temp = document.createElement('div');
-      temp.style.cssText = `background-color: ${cursorBackgroundColor}; display: none;`;
-      document.body.appendChild(temp);
-      resolvedCursorColor = getComputedStyle(temp).backgroundColor;
-      document.body.removeChild(temp);
-    }
+    const cursorRgb = this.resolveColorToRgb(cursorBackgroundColor);
+    const resolvedCursorColor = `rgb(${cursorRgb.r}, ${cursorRgb.g}, ${cursorRgb.b})`;
 
     // Candidate text colors to try, in order of preference:
     // 1. Theme's --text-on-accent (if available) - designed for text on accent colors
@@ -108,7 +130,11 @@ export class ColorProvider {
 
     for (const candidate of candidates) {
       try {
-        const contrast = getContrastRatio(resolvedCursorColor, candidate.color);
+        // Resolve candidate to RGB using our robust resolver
+        const candidateRgb = this.resolveColorToRgb(candidate.color);
+        const resolvedCandidate = `rgb(${candidateRgb.r}, ${candidateRgb.g}, ${candidateRgb.b})`;
+
+        const contrast = getContrastRatio(resolvedCursorColor, resolvedCandidate);
         // Prefer higher contrast, but among similar contrast levels, prefer lower priority
         // Use a threshold of 0.5 to consider contrast "similar"
         if (contrast > bestContrast + 0.5 || (contrast > bestContrast - 0.5 && candidate.priority < bestPriority)) {
@@ -135,8 +161,11 @@ export class ColorProvider {
    * Get the theme's accent color
    */
   private getThemeAccentColor(): string {
-    const style = getComputedStyle(document.body);
-    return style.getPropertyValue('--interactive-accent').trim();
+    if (this.themeColorsCache.accent === null) {
+      const style = getComputedStyle(document.body);
+      this.themeColorsCache.accent = style.getPropertyValue('--interactive-accent').trim();
+    }
+    return this.themeColorsCache.accent;
   }
 
   /**
@@ -155,7 +184,7 @@ export class ColorProvider {
     settings: VisibleCursorPluginSettings,
     accentColor: string
   ): { color: string; opacity: number } {
-    if (settings.customCursorStyle === 'bar') {
+    if (settings.customCursorStyle === 'bar' || settings.customCursorStyle === 'thinbar') {
       // Bar cursor: use accent as-is
       return { color: accentColor, opacity: 0.8 };
     }
@@ -163,15 +192,22 @@ export class ColorProvider {
     // Block cursor: adjust accent color for better text readability
     // We want a color that works well with either white or black text
     const isDark = this.isDarkTheme();
+    const rgb = this.resolveColorToRgb(accentColor);
 
     if (isDark) {
       // Dark theme: lighten the accent slightly so white text is more readable
       // Mix 85% accent with 15% white for a slightly lighter background
-      return { color: `color-mix(in srgb, ${accentColor} 85%, white)`, opacity: 0.8 };
+      const r = Math.round(rgb.r * 0.85 + 255 * 0.15);
+      const g = Math.round(rgb.g * 0.85 + 255 * 0.15);
+      const b = Math.round(rgb.b * 0.85 + 255 * 0.15);
+      return { color: `rgb(${r}, ${g}, ${b})`, opacity: 0.8 };
     } else {
       // Light theme: significantly lighten the accent so black text is readable
       // Mix 30% accent with 70% white for a light pastel background
-      return { color: `color-mix(in srgb, ${accentColor} 30%, white)`, opacity: 0.8 };
+      const r = Math.round(rgb.r * 0.30 + 255 * 0.70);
+      const g = Math.round(rgb.g * 0.30 + 255 * 0.70);
+      const b = Math.round(rgb.b * 0.30 + 255 * 0.70);
+      return { color: `rgb(${r}, ${g}, ${b})`, opacity: 0.8 };
     }
   }
 }

@@ -52,7 +52,7 @@ class CustomCursorViewPlugin {
 
 		return {
 			key: this,
-			read: (view: EditorView): { top: number; left: number; width: number; height: number; color: string } | null => {
+			read: (view: EditorView): { top: number; left: number; width: number; height: number; color: string; char: string; contrastColor: string } | null => {
 				const mode = plugin.settings.customCursorMode;
 				if (mode === 'off') return null;
 				if (mode === 'flash' && !plugin.flashActive) return null;
@@ -104,15 +104,50 @@ class CustomCursorViewPlugin {
 				// coordsAtPos(visualPos+1, +1) gives the left edge of the NEXT char, which
 				// equals the right edge of the current char in LTR text.
 				let charWidth = 0;
+				let char = '';
 				if (style === 'block') {
 					const doc = view.state.doc;
-					const vpos1 = Math.min(doc.length, visualPos + 1);
+					
+					let isEndOfVisualLine = false;
+					if (assocForCoords === -1 && visualPos < doc.length) {
+						const coordsBefore = view.coordsAtPos(visualPos, -1);
+						const coordsAfter = view.coordsAtPos(visualPos, 1);
+						if (coordsBefore && coordsAfter && Math.abs(coordsBefore.top - coordsAfter.top) > 1) {
+							isEndOfVisualLine = true;
+						}
+					}
+					
+					if (visualPos < doc.length) {
+						const line = view.state.doc.lineAt(visualPos);
+						if (visualPos === line.to || isEndOfVisualLine) {
+							char = ' ';
+						} else {
+							const text = line.text;
+							const offset = visualPos - line.from;
+							const codePoint = text.codePointAt(offset);
+							if (codePoint !== undefined) {
+								char = String.fromCodePoint(codePoint);
+							} else {
+								char = ' ';
+							}
+						}
+					} else {
+						char = ' ';
+					}
+
+					const vpos1 = Math.min(doc.length, visualPos + char.length);
 					const rightCoords = vpos1 > visualPos ? view.coordsAtPos(vpos1, 1) : null;
-					if (rightCoords && rightCoords.left > coords.left) {
+					if (rightCoords && rightCoords.left > coords.left && !isEndOfVisualLine) {
 						charWidth = rightCoords.left - coords.left;
 					} else {
 						charWidth = view.defaultCharacterWidth || 10;
 					}
+				}
+
+				const cursorColor = plugin.colorProvider.getColor(plugin.settings).color;
+				let contrastColor = '';
+				if (style === 'block') {
+					contrastColor = plugin.colorProvider.getContrastColor(cursorColor);
 				}
 
 				return {
@@ -120,10 +155,12 @@ class CustomCursorViewPlugin {
 					left: coords.left - scrollRect.left + scrollDOM.scrollLeft,
 					width: charWidth,  // 0 for bar/thinbar (width handled in write)
 					height: coords.bottom - coords.top,
-					color: plugin.colorProvider.getColor(plugin.settings).color
+					color: cursorColor,
+					char: char,
+					contrastColor: contrastColor
 				};
 			},
-			write: (measure: { top: number; left: number; width: number; height: number; color: string } | null) => {
+			write: (measure: { top: number; left: number; width: number; height: number; color: string; char: string; contrastColor: string } | null) => {
 				if (!measure) {
 					cursorLayer.style.display = 'none';
 					return;
@@ -150,6 +187,7 @@ class CustomCursorViewPlugin {
 					el.style.border = '';
 					el.style.opacity = '';
 					el.style.mixBlendMode = '';
+					el.textContent = '';
 				} else if (style === 'thinbar') {
 					el.style.width = '2px';
 					el.style.backgroundColor = measure.color;
@@ -157,16 +195,29 @@ class CustomCursorViewPlugin {
 					el.style.opacity = '';
 					el.style.marginLeft = '';
 					el.style.mixBlendMode = '';
+					el.textContent = '';
 				} else {
 					// block: covers the character cell using the measured character width.
-					// mix-blend-mode: difference keeps the character text visible through
-					// the highlight (same technique as codemirror-emacs block cursor).
 					el.style.width = measure.width > 0 ? measure.width + 'px' : '0.6em';
 					el.style.backgroundColor = measure.color;
-					el.style.opacity = '0.85';
-					el.style.mixBlendMode = 'difference';
+					el.style.opacity = '1';
+					el.style.mixBlendMode = 'normal';
 					el.style.border = '';
 					el.style.marginLeft = '';
+					
+					// Render the character inside the cursor for perfect contrast
+					el.textContent = measure.char;
+					el.style.color = measure.contrastColor;
+					el.style.display = 'flex';
+					el.style.alignItems = 'center';
+					el.style.justifyContent = 'flex-start';
+					el.style.overflow = 'hidden';
+					el.style.whiteSpace = 'pre';
+					// Match the font of the editor
+					el.style.fontFamily = 'inherit';
+					el.style.fontSize = 'inherit';
+					el.style.lineHeight = measure.height + 'px';
+					el.style.setProperty('tab-size', 'inherit');
 				}
 			}
 		};
@@ -239,6 +290,7 @@ export default class VisibleCursorPlugin extends Plugin {
 		this.registerEvent(
 			this.app.workspace.on('css-change', () => {
 				this.app.workspace.updateOptions();
+				this.colorProvider.clearCache();
 				requestAnimationFrame(() => this.updateCursorStyles());
 			})
 		);
@@ -866,6 +918,14 @@ ${caretScope} {
 
 	refreshDecorations() {
 		this.updateCursorStyles();
+		this.app.workspace.iterateAllLeaves((leaf) => {
+			if (leaf.view instanceof MarkdownView) {
+				const editorView = (leaf.view.editor as any).cm as EditorView;
+				if (editorView) {
+					editorView.dispatch({ selection: editorView.state.selection });
+				}
+			}
+		});
 	}
 
 	async loadSettings() {
