@@ -301,135 +301,193 @@ export default class VisibleCursorPlugin extends Plugin {
 	 * at a soft-wrap boundary with sel.assoc ≤ 0 (CM6's default after a rightward
 	 * move), it overrides to assoc=+1 so the block appears on line 2.
 	 *
-	 * This filter only needs to handle one additional case:
-	 *   • When the cursor arrives at P via a rightward keyboard move, block shows
-	 *     on line 2 immediately.  Pressing → AGAIN should advance to P+1 (second
-	 *     char of continuation line), not stay at P.
-	 *   • We use blockWrapState={logicalPos:P, showPos:P, assoc:+1} as a flag set
-	 *     by the updateListener after rightward arrival; handleRight sees it and
-	 *     allows the advance.
+	 * This filter handles:
+	 *   • ArrowRight: When the cursor arrives at P via a rightward keyboard move,
+	 *     block shows on line 2 immediately. Pressing → AGAIN should advance to P+1
+	 *     (second char of continuation line), not stay at P.
+	 *   • ArrowDown: When the block cursor is visually shown at the start of a
+	 *     wrapped continuation line (assoc=1 at soft-wrap boundary), Down should
+	 *     use that visual x-position as the anchor for vertical movement, rather
+	 *     than the underlying logical position.
 	 *
 	 * Bar / thinbar cursors are completely unaffected.
 	 */
 	createBlockCursorNavFilter() {
 		const plugin = this;
 
-		// Set by the updateListener when a rightward keyboard move arrives at a
-		// soft-wrap boundary P.  Cleared by handleRight when advancing past P,
-		// and by the updateListener when the cursor moves elsewhere.
 		let blockWrapState: { logicalPos: number; showPos: number; assoc: 1 | -1 } | null = null;
+		let pendingDownFromWrapPos: number | null = null;
 
 		// Expose to buildMeasureReq via plugin instance
 		(plugin as any)._blockWrapState = () => blockWrapState;
 
 		// Inter-plugin API: expose _visibleCursorForwardChar on the window object so
 		// that other plugins can integrate with the block cursor soft-wrap behavior.
-		// Usage in another plugin:
-		//   const helper = (window as any)._visibleCursorForwardChar;
-		//   if (helper && helper(view)) return; // skip own advance
-		//   // ...do own advance...
-		// Returns true if the forward-char was handled (block showed first char of
-		// continuation line, caller should NOT advance further this keypress).
-		// Returns false if the caller should proceed with its normal advance.
 		(window as any)._visibleCursorForwardChar = (view: EditorView): boolean => {
 			if (plugin.settings.customCursorStyle !== 'block') return false;
+
 			const sel = view.state.selection.main;
 			if (!sel.empty) return false;
+
 			const pos = sel.head;
 
 			if (blockWrapState && blockWrapState.logicalPos === pos) {
-				// Already showing line-2-start; allow caller's advance (P+1)
 				blockWrapState = null;
 				return false;
 			}
 
-			// Check if at soft-wrap boundary (reliable here since called at render time
-			// or in response to a user action, not inside a transaction)
 			const a = view.coordsAtPos(pos, 1);
 			const b = view.coordsAtPos(pos, -1);
 			if (a && b && Math.abs(a.top - b.top) > 1) {
-				// At wrap boundary — snap to line-2-start and suppress caller's advance
 				blockWrapState = { logicalPos: pos, showPos: pos, assoc: 1 };
+				pendingDownFromWrapPos = pos;
 				view.dispatch({ selection: EditorSelection.cursor(pos, 1) });
-				return true; // caller should NOT advance
+				return true;
 			}
 
-			return false; // not at wrap boundary, caller proceeds normally
+			return false;
 		};
 
-		// Detects whether a document position sits at a soft-wrap boundary.
 		const isSoftWrap = (view: EditorView, pos: number): boolean => {
 			const line = view.state.doc.lineAt(pos);
-			
-			// 1. If we are at the end of a physical line (\n), it is NOT a soft wrap.
+
 			if (pos === line.to) return false;
 
-			// 2. Check if the vertical position changes at the same logical index.
 			const coordsBefore = view.coordsAtPos(pos, -1);
 			const coordsAfter = view.coordsAtPos(pos, 1);
-			
+
 			if (!coordsBefore || !coordsAfter) return false;
-			
-			// If the top coordinate differs, the line has wrapped visually.
+
 			return Math.abs(coordsBefore.top - coordsAfter.top) > 1;
 		};
 
-		// ── HandleRight ─────────────────────────────────────────────────────────
-		// If blockWrapState is active for the current pos (set by updateListener on
-		// rightward arrival at wrap boundary P): the block is already showing line-2
-		// start.  Clear the state and let CM6 advance to P+1.
-		//
-		// NEW: Also handles the case where cursor landed at a soft-wrap boundary
-		// via End key, mouse click, or other jump (assoc=-1).  Pressing → should
-		// snap to assoc=1 (show first char of next line) instead of advancing to P+1.
+		const findStartOfNextVisualLineFromWrap = (
+			view: EditorView,
+			pos: number
+		): { pos: number; assoc: 1 | -1 } | null => {
+			const doc = view.state.doc;
+			const line = doc.lineAt(pos);
+
+			const current = view.coordsAtPos(pos, 1);
+			if (!current) return null;
+
+			// First: look for the first position later in the SAME logical line
+			// whose visual top is below the current wrapped segment.
+			for (let p = pos + 1; p <= line.to; p++) {
+				const c = view.coordsAtPos(p, 1);
+				if (!c) continue;
+
+				if (c.top > current.top + 1) {
+					return { pos: p, assoc: 1 };
+				}
+			}
+
+			// If there is no lower visual segment in this logical line, fall back to
+			// the start of the next physical line.
+			if (line.number < doc.lines) {
+				const nextLine = doc.line(line.number + 1);
+				return { pos: nextLine.from, assoc: 1 };
+			}
+
+			return null;
+		};
+
 		const handleRight = (view: EditorView): boolean => {
 			if (plugin.settings.customCursorStyle !== 'block') return false;
+
 			const sel = view.state.selection.main;
 			if (!sel.empty) return false;
+
 			const pos = sel.head;
 
 			if (blockWrapState && blockWrapState.logicalPos === pos) {
-				// Block is showing line-2-start; this press advances to P+1
 				blockWrapState = null;
-				return false;  // let CM6 advance normally
+				return false;
 			}
 
-			// NEW: Check if we're at a soft-wrap boundary with assoc !== 1
-			// (e.g., after End key or mouse click).  Snap to assoc=1 instead of advancing.
 			if (sel.assoc !== 1 && isSoftWrap(view, pos)) {
 				blockWrapState = { logicalPos: pos, showPos: pos, assoc: 1 };
+				pendingDownFromWrapPos = pos;
 				view.dispatch({ selection: EditorSelection.cursor(pos, 1) });
-				return true;  // handled: don't let CM6 advance
+				return true;
 			}
 
 			blockWrapState = null;
 			return false;
 		};
 
-		// ── HandleLeft ───────────────────────────────────────────────────────────
-		// Clear blockWrapState on any leftward press so the visual reverts to normal
-		// sel.assoc-based rendering.  CM6 naturally handles the visual correctly
-		// when moving left through the boundary (lands at P with assoc=+1 showing
-		// the first char of line 2, then retreats to P-1 on the next ←).
 		const handleLeft = (view: EditorView): boolean => {
 			if (plugin.settings.customCursorStyle !== 'block') return false;
 			if (!view.state.selection.main.empty) return false;
+
 			blockWrapState = null;
+			pendingDownFromWrapPos = null;
 			return false;
 		};
 
-		// ── UpdateListener ─────────────────────────────────────────────────────
-		// When a rightward keyboard move arrives at soft-wrap boundary P, set
-		// blockWrapState so the advance-logic in handleRight is armed for the
-		// next → press.  Also clears stale state when cursor moves elsewhere.
+		const handleDown = (view: EditorView): boolean => {
+			if (plugin.settings.customCursorStyle !== 'block') return false;
+
+			const sel = view.state.selection.main;
+			if (!sel.empty) return false;
+
+			const pos = sel.head;
+
+			const wrapStateForPos =
+				blockWrapState &&
+				blockWrapState.logicalPos === pos &&
+				blockWrapState.assoc === 1
+					? blockWrapState
+					: null;
+
+			const allowWrappedDown =
+				!!wrapStateForPos || pendingDownFromWrapPos === pos;
+
+			console.log('VISIBLE-CURSOR handleDown', {
+				pos,
+				selAssoc: sel.assoc,
+				blockWrapState,
+				pendingDownFromWrapPos,
+				allowWrappedDown
+			});
+
+			if (!allowWrappedDown) {
+				return false;
+			}
+
+			const target = findStartOfNextVisualLineFromWrap(view, pos);
+			pendingDownFromWrapPos = null;
+
+			if (!target) {
+				blockWrapState = null;
+				return false;
+			}
+
+			// Set blockWrapState for the target position so the renderer shows
+			// the cursor at the start of the continuation line (assoc=1),
+			// just like handleRight() does.
+			blockWrapState = { logicalPos: target.pos, showPos: target.pos, assoc: 1 };
+			view.dispatch({
+				selection: EditorSelection.cursor(target.pos, 1),
+				scrollIntoView: true
+			});
+			return true;
+		};
+
 		const navCorrection = EditorView.updateListener.of((update: ViewUpdate) => {
 			if (!update.selectionSet && !update.docChanged) return;
+
 			const sel = update.state.selection.main;
 
-			// Clear state if the cursor moves away
 			if (blockWrapState !== null) {
 				if (update.docChanged || !sel.empty || sel.head !== blockWrapState.logicalPos) {
 					blockWrapState = null;
+				}
+			}
+
+			if (pendingDownFromWrapPos !== null) {
+				if (update.docChanged || !sel.empty) {
+					pendingDownFromWrapPos = null;
 				}
 			}
 
@@ -441,15 +499,11 @@ export default class VisibleCursorPlugin extends Plugin {
 			const pos = sel.head;
 			const oldSel = update.startState.selection.main;
 
-			// Skip manual selection jumps via mouse
 			if (update.transactions.some(t => t.isUserEvent('select.pointer'))) return;
 
-			// ONLY intercept if the user is moving exactly 1 character forward (Right Arrow)
-			// This allows the "End" key to land at assoc: -1 (end of current line) normally.
-			// The resulting dispatch has pos - oldSel.head = 0, so this won't recurse.
 			if (pos - oldSel.head === 1 && isSoftWrap(update.view, pos)) {
-				// "Arm" the wrap state and force association to the next visual line
 				blockWrapState = { logicalPos: pos, showPos: pos, assoc: 1 };
+				pendingDownFromWrapPos = pos;
 				update.view.dispatch({
 					selection: EditorSelection.cursor(pos, 1)
 				});
@@ -459,7 +513,8 @@ export default class VisibleCursorPlugin extends Plugin {
 		return [
 			Prec.highest(keymap.of([
 				{ key: 'ArrowRight', run: handleRight },
-				{ key: 'ArrowLeft',  run: handleLeft  },
+				{ key: 'ArrowLeft', run: handleLeft },
+				{ key: 'ArrowDown', run: handleDown },
 			])),
 			navCorrection
 		];
