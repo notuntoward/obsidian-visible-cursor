@@ -91,7 +91,7 @@ export class ColorProvider {
    * Get the appropriate text color for a given background color
    * Uses WCAG contrast ratio calculations
    */
-  getContrastColor(cursorBackgroundColor: string): string {
+  getContrastColor(cursorBackgroundColor: string, originalTextColor?: string): string {
     if (this.themeColorsCache.bg === null) {
       const computedStyle = getComputedStyle(document.body);
       this.themeColorsCache.bg = computedStyle.getPropertyValue('--background-primary').trim() || '#ffffff';
@@ -108,6 +108,7 @@ export class ColorProvider {
     const resolvedCursorColor = `rgb(${cursorRgb.r}, ${cursorRgb.g}, ${cursorRgb.b})`;
 
     // Candidate text colors to try, in order of preference:
+    // 0. The exact original color of the character (if provided)
     // 1. Theme's --text-on-accent (if available) - designed for text on accent colors
     // 2. White (#ffffff) - works well on dark/medium backgrounds
     // 3. Black (#000000) - works well on light backgrounds
@@ -115,6 +116,9 @@ export class ColorProvider {
     // 5. Theme's background color (inverted from normal)
     const candidates: { color: string; priority: number }[] = [];
 
+    if (originalTextColor) {
+      candidates.push({ color: originalTextColor, priority: 0 });
+    }
     if (textOnAccent) {
       candidates.push({ color: textOnAccent, priority: 1 });
     }

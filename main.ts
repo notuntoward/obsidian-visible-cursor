@@ -52,7 +52,7 @@ class CustomCursorViewPlugin {
 
 		return {
 			key: this,
-			read: (view: EditorView): { top: number; left: number; width: number; height: number; color: string; char: string; contrastColor: string } | null => {
+			read: (view: EditorView): { top: number; left: number; width: number; height: number; color: string; char: string; contrastColor: string; fontStyle: string; fontWeight: string; fontSize: string; fontFamily: string } | null => {
 				const mode = plugin.settings.customCursorMode;
 				if (mode === 'off') return null;
 				if (mode === 'flash' && !plugin.flashActive) return null;
@@ -105,6 +105,12 @@ class CustomCursorViewPlugin {
 				// equals the right edge of the current char in LTR text.
 				let charWidth = 0;
 				let char = '';
+				let fontStyle = 'inherit';
+				let fontWeight = 'inherit';
+				let fontSize = 'inherit';
+				let fontFamily = 'inherit';
+				let originalColor = '';
+
 				if (style === 'block') {
 					const doc = view.state.doc;
 					
@@ -142,12 +148,26 @@ class CustomCursorViewPlugin {
 					} else {
 						charWidth = view.defaultCharacterWidth || 10;
 					}
+
+					if (char !== ' ') {
+						// Try to get the font properties of the element under the cursor
+						// We use coords.left + 1 and the vertical center to reliably hit the text span
+						const el = document.elementFromPoint(coords.left + 1, coords.top + (coords.bottom - coords.top) / 2);
+						if (el && el.nodeType === Node.ELEMENT_NODE) {
+							const computed = getComputedStyle(el);
+							fontStyle = computed.fontStyle;
+							fontWeight = computed.fontWeight;
+							fontSize = computed.fontSize;
+							fontFamily = computed.fontFamily;
+							originalColor = computed.color;
+						}
+					}
 				}
 
 				const cursorColor = plugin.colorProvider.getColor(plugin.settings).color;
 				let contrastColor = '';
 				if (style === 'block') {
-					contrastColor = plugin.colorProvider.getContrastColor(cursorColor);
+					contrastColor = plugin.colorProvider.getContrastColor(cursorColor, originalColor);
 				}
 
 				return {
@@ -157,10 +177,14 @@ class CustomCursorViewPlugin {
 					height: coords.bottom - coords.top,
 					color: cursorColor,
 					char: char,
-					contrastColor: contrastColor
+					contrastColor: contrastColor,
+					fontStyle,
+					fontWeight,
+					fontSize,
+					fontFamily
 				};
 			},
-			write: (measure: { top: number; left: number; width: number; height: number; color: string; char: string; contrastColor: string } | null) => {
+			write: (measure: { top: number; left: number; width: number; height: number; color: string; char: string; contrastColor: string; fontStyle: string; fontWeight: string; fontSize: string; fontFamily: string } | null) => {
 				if (!measure) {
 					cursorLayer.style.display = 'none';
 					return;
@@ -213,9 +237,11 @@ class CustomCursorViewPlugin {
 					el.style.justifyContent = 'flex-start';
 					el.style.overflow = 'hidden';
 					el.style.whiteSpace = 'pre';
-					// Match the font of the editor
-					el.style.fontFamily = 'inherit';
-					el.style.fontSize = 'inherit';
+					// Match the font of the editor and the specific character
+					el.style.fontStyle = measure.fontStyle;
+					el.style.fontWeight = measure.fontWeight;
+					el.style.fontSize = measure.fontSize;
+					el.style.fontFamily = measure.fontFamily;
 					el.style.lineHeight = measure.height + 'px';
 					el.style.setProperty('tab-size', 'inherit');
 				}
