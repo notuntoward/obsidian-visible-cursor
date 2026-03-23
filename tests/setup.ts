@@ -1,11 +1,14 @@
 // Mock document globals for tests
+// Store classes in a Set for dynamic classList behavior
+const bodyClasses = new Set<string>();
+
 if (typeof global !== 'undefined' && !global.document) {
 	(global as any).document = {
 		body: {
 			classList: {
-				contains: () => false,
-				add: () => {},
-				remove: () => {}
+				contains: (className: string) => bodyClasses.has(className),
+				add: (className: string) => bodyClasses.add(className),
+				remove: (className: string) => bodyClasses.delete(className)
 			},
 			appendChild: () => {},
 			removeChild: () => {}
