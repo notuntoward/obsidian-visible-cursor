@@ -227,6 +227,7 @@ class CustomCursorViewPlugin {
 export default class VisibleCursorPlugin extends Plugin {
 	settings: VisibleCursorPluginSettings;
 	private styleElement: HTMLStyleElement | null = null;
+	lastKey: string = '';
 
 	private lastViewChange: number = 0;
 	private flashTimeout: NodeJS.Timeout | null = null;
@@ -240,6 +241,7 @@ export default class VisibleCursorPlugin extends Plugin {
 	private boundStartFence: () => void;
 	private boundEndFenceSoon: () => void;
 	private boundClickEndFence: () => void;
+	private boundKeydown: (e: KeyboardEvent) => void;
 
 	// Services
 	colorProvider: ColorProvider;    // public so CustomCursorViewPlugin can read it
@@ -299,10 +301,12 @@ export default class VisibleCursorPlugin extends Plugin {
 		this.boundStartFence = () => { this.clickFenceActive = true; };
 		this.boundEndFenceSoon = () => { setTimeout(() => { this.clickFenceActive = false; }, 400); };
 		this.boundClickEndFence = () => { this.boundEndFenceSoon(); };
+		this.boundKeydown = (e: KeyboardEvent) => { this.lastKey = e.key; };
 		window.addEventListener('pointerdown', this.boundStartFence, { capture: true });
 		window.addEventListener('pointerup', this.boundEndFenceSoon, { capture: true });
 		window.addEventListener('pointercancel', this.boundEndFenceSoon, { capture: true });
 		window.addEventListener('click', this.boundClickEndFence, { capture: true });
+		window.addEventListener('keydown', this.boundKeydown, { capture: true });
 	}
 
 	createDOMEventHandlers() {
@@ -369,7 +373,6 @@ export default class VisibleCursorPlugin extends Plugin {
 
 		let blockWrapState: { logicalPos: number; showPos: number; assoc: 1 | -1 } | null = null;
 		let pendingDownFromWrapPos: number | null = null;
-		let pendingUpFromPos: number | null = null;
 
 		// Expose to buildMeasureReq via plugin instance
 		(plugin as any)._blockWrapState = () => blockWrapState;
@@ -587,8 +590,6 @@ export default class VisibleCursorPlugin extends Plugin {
 			// visually at the start of a continuation line).  Compute the target
 			// ourselves — symmetric to handleDown's findStartOfNextVisualLineFromWrap.
 			if (blockWrapState && blockWrapState.logicalPos === pos && blockWrapState.assoc === 1) {
-				pendingUpFromPos = null; // clear any stale flag
-
 				const target = findStartOfPreviousVisualLineFromWrap(view, pos);
 				console.log('VISIBLE-CURSOR handleUp CASE1', {
 					pos, target, blockWrapState
@@ -616,7 +617,6 @@ export default class VisibleCursorPlugin extends Plugin {
 
 			// CASE 2: Cursor NOT at a known wrap boundary.
 			// Let CM6 handle the movement; navCorrection fixes assoc if needed.
-			pendingUpFromPos = pos;
 			console.log('VISIBLE-CURSOR handleUp CASE2', {
 				pos, selAssoc: sel.assoc, blockWrapState
 			});
@@ -627,6 +627,10 @@ export default class VisibleCursorPlugin extends Plugin {
 			if (!update.selectionSet && !update.docChanged) return;
 
 			const sel = update.state.selection.main;
+			const oldSel = update.startState.selection.main;
+			const pos = sel.head;
+
+			const oldWrapState = blockWrapState;
 
 			if (blockWrapState !== null) {
 				if (update.docChanged || !sel.empty || sel.head !== blockWrapState.logicalPos) {
@@ -640,23 +644,35 @@ export default class VisibleCursorPlugin extends Plugin {
 				}
 			}
 
-			if (pendingUpFromPos !== null) {
-				if (update.docChanged || !sel.empty) {
-					pendingUpFromPos = null;
-				}
-			}
-
-			if (blockWrapState !== null) return;
 			if (!update.selectionSet || update.docChanged) return;
 			if (plugin.settings.customCursorStyle !== 'block') return;
 			if (!sel.empty) return;
 
-			const pos = sel.head;
-			const oldSel = update.startState.selection.main;
-
 			if (update.transactions.some(t => t.isUserEvent('select.pointer'))) return;
+			if (update.transactions.some(t => t.isUserEvent('emacs.moveToEnd'))) return;
 
-			if (pos - oldSel.head === 1 && isSoftWrap(update.view, pos)) {
+			// 1. Handle moving FORWARD by 1 char from a wrap boundary (e.g. Emacs forward char after End key)
+			if (pos - oldSel.head === 1) {
+				if (isSoftWrap(update.view, pos)) {
+					blockWrapState = { logicalPos: pos, showPos: pos, assoc: 1 };
+					pendingDownFromWrapPos = pos;
+					update.view.dispatch({
+						selection: EditorSelection.cursor(pos, 1)
+					});
+					return;
+				}
+				if (isSoftWrap(update.view, oldSel.head) && oldSel.assoc === -1) {
+					blockWrapState = { logicalPos: oldSel.head, showPos: oldSel.head, assoc: 1 };
+					pendingDownFromWrapPos = oldSel.head;
+					update.view.dispatch({
+						selection: EditorSelection.cursor(oldSel.head, 1)
+					});
+					return;
+				}
+			}
+
+			// 1b. Handle moving BACKWARD by 1 char onto a wrap boundary
+			if (pos - oldSel.head === -1 && isSoftWrap(update.view, pos) && sel.assoc !== 1) {
 				blockWrapState = { logicalPos: pos, showPos: pos, assoc: 1 };
 				pendingDownFromWrapPos = pos;
 				update.view.dispatch({
@@ -665,30 +681,84 @@ export default class VisibleCursorPlugin extends Plugin {
 				return;
 			}
 
-			// Handle Up arrow landing on a soft-wrap boundary:
-			// CM6's default cursorLineUp may assign assoc ≤ 0, causing the block
-			// cursor to render at the end of the visual line above instead of the
-			// start of the continuation line.  Fix by detecting the boundary and
-			// re-dispatching with assoc=1 (same technique as right-arrow above).
-			if (pendingUpFromPos !== null) {
-				const fromPos = pendingUpFromPos;
-				pendingUpFromPos = null;
-				const isWrap = isSoftWrap(update.view, pos);
-				console.log('VISIBLE-CURSOR navCorrection pendingUp', {
-					pos,
-					fromPos,
-					selAssoc: sel.assoc,
-					posChanged: pos !== fromPos,
-					isWrap,
-					blockWrapState
-				});
-				if (pos !== fromPos && isWrap) {
-					blockWrapState = { logicalPos: pos, showPos: pos, assoc: 1 };
-					pendingDownFromWrapPos = pos;
-					update.view.dispatch({
-						selection: EditorSelection.cursor(pos, 1)
-					});
+			// 2. Generalized vertical movement correction
+			if (pos !== oldSel.head && Math.abs(pos - oldSel.head) > 1) {
+				// If the user pressed End or Home, do NOT apply vertical corrections
+				// because they are horizontal movements that can look like vertical ones
+				if (plugin.lastKey === 'End' || plugin.lastKey === 'Home') {
 					return;
+				}
+
+				const oldAssoc = (oldWrapState !== null && oldSel.head === oldWrapState.logicalPos) ? 1 : (oldSel.assoc || -1);
+				const oldCoords = update.view.coordsAtPos(oldSel.head, oldAssoc);
+				const newCoords = update.view.coordsAtPos(pos, sel.assoc || -1);
+				
+				if (oldCoords && newCoords) {
+					const dy = newCoords.top - oldCoords.top;
+					const lineHeight = update.view.defaultLineHeight;
+					
+					// 2a. If moved UP from >1 line below and landed on a wrap boundary, force assoc: 1
+					// This replaces the old pendingUpFromPos logic.
+					// We check dy < -lineHeight * 1.5 because if we moved UP from the end of the SAME visual line (line b)
+					// to the end of the previous visual line (line a), dy would be -1 * lineHeight.
+					// In that case, we WANT to stay on line a (assoc: -1).
+					// But if we moved UP from line c to the start of line b, newCoords (with assoc: -1) is on line a,
+					// so dy is -2 * lineHeight. In that case, we WANT to force assoc: 1 to be on line b.
+					if (dy < -lineHeight * 1.5 && isSoftWrap(update.view, pos) && sel.assoc !== 1) {
+						blockWrapState = { logicalPos: pos, showPos: pos, assoc: 1 };
+						pendingDownFromWrapPos = pos;
+						update.view.dispatch({
+							selection: EditorSelection.cursor(pos, 1)
+						});
+						return;
+					}
+					
+					// 2b. If moved exactly 1 line DOWN from a wrap boundary (e.g. Emacs next line)
+					if (oldWrapState !== null && oldSel.head === oldWrapState.logicalPos) {
+						if (dy > lineHeight * 0.5 && dy < lineHeight * 1.5) {
+							const target = findStartOfNextVisualLineFromWrap(update.view, oldSel.head);
+							if (target) {
+								blockWrapState = { logicalPos: target.pos, showPos: target.pos, assoc: 1 };
+								pendingDownFromWrapPos = target.pos;
+								update.view.dispatch({
+									selection: EditorSelection.cursor(target.pos, 1),
+									scrollIntoView: true
+								});
+								return;
+							}
+						}
+						
+						// 2c. If moved exactly 1 line UP from a wrap boundary (e.g. Emacs previous line)
+						if (dy < -lineHeight * 0.5 && dy > -lineHeight * 1.5) {
+							const target = findStartOfPreviousVisualLineFromWrap(update.view, oldSel.head);
+							if (target) {
+								if (target.isSoftWrap) {
+									blockWrapState = { logicalPos: target.pos, showPos: target.pos, assoc: 1 };
+									pendingDownFromWrapPos = target.pos;
+								}
+								update.view.dispatch({
+									selection: EditorSelection.cursor(target.pos, 1),
+									scrollIntoView: true
+								});
+								return;
+							}
+						}
+
+						// 2d. If moved to the end of the SAME visual line (dy === 0), but it wasn't the End key
+						// This happens with Obsidian's goDown command (Emacs next line) because it uses logical columns
+						if (Math.abs(dy) < 1) {
+							const target = findStartOfNextVisualLineFromWrap(update.view, oldSel.head);
+							if (target) {
+								blockWrapState = { logicalPos: target.pos, showPos: target.pos, assoc: 1 };
+								pendingDownFromWrapPos = target.pos;
+								update.view.dispatch({
+									selection: EditorSelection.cursor(target.pos, 1),
+									scrollIntoView: true
+								});
+								return;
+							}
+						}
+					}
 				}
 			}
 		});
@@ -959,6 +1029,7 @@ ${caretScope} {
 		window.removeEventListener('pointerup', this.boundEndFenceSoon, { capture: true });
 		window.removeEventListener('pointercancel', this.boundEndFenceSoon, { capture: true });
 		window.removeEventListener('click', this.boundClickEndFence, { capture: true });
+		window.removeEventListener('keydown', this.boundKeydown, { capture: true });
 		delete (window as any)._visibleCursorForwardChar;
 	}
 }
