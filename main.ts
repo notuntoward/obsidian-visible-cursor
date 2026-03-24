@@ -130,7 +130,14 @@ class CustomCursorViewPlugin {
 					if (assocForCoords === -1 && visualPos < doc.length) {
 						const coordsBefore = view.coordsAtPos(visualPos, -1);
 						const coordsAfter = view.coordsAtPos(visualPos, 1);
-						if (coordsBefore && coordsAfter && Math.abs(coordsBefore.top - coordsAfter.top) > 1) {
+						// Use 30% of line height as the soft-wrap detection threshold instead of
+						// a hardcoded 1px. A fixed 1px threshold is unreliable at non-100% display
+						// scaling (HiDPI) or with subpixel font rendering where same-line coords
+						// can legitimately differ by up to ~1px. 0.3 * lineHeight is large enough
+						// to absorb that drift and small enough to never trigger on same-visual-line
+						// positions regardless of font or zoom level.
+						const wrapThreshold = view.defaultLineHeight * 0.3;
+						if (coordsBefore && coordsAfter && Math.abs(coordsBefore.top - coordsAfter.top) > wrapThreshold) {
 							isEndOfVisualLine = true;
 						}
 					}
@@ -483,7 +490,13 @@ export default class VisibleCursorPlugin extends Plugin {
 
 			if (!coordsBefore || !coordsAfter) return false;
 
-			return Math.abs(coordsBefore.top - coordsAfter.top) > 1;
+			// Use 30% of line height as the threshold instead of a hardcoded 1px value.
+			// A fixed 1px threshold fails at non-100% display scaling and with subpixel
+			// font rendering where same-line positions can legitimately differ by ~1px.
+			// 0.3 * defaultLineHeight is immune to both while remaining far below any
+			// real line-change delta (which is always ≥ 1 line height).
+			const threshold = view.defaultLineHeight * 0.3;
+			return Math.abs(coordsBefore.top - coordsAfter.top) > threshold;
 		};
 
 		const findStartOfNextVisualLineFromWrap = (
