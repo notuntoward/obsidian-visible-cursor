@@ -48,6 +48,15 @@ class CustomCursorViewPlugin {
 		this.plugin = null as any;
 	}
 
+	/**
+	 * Builds the CM6 measure request for the custom cursor element.
+	 *
+	 * **Multi-cursor behaviour**: only `selection.main` (the primary cursor) is
+	 * rendered by this plugin. Secondary cursors in multi-cursor mode (Alt+Click,
+	 * Ctrl+D, etc.) receive CodeMirror's native cursor rendering. This is
+	 * intentional: the plugin enhances the primary cursor only and degrades
+	 * gracefully for secondary cursors.
+	 */
 	private buildMeasureReq() {
 		const plugin = this.plugin;
 		const cursorLayer = this.cursorLayer;
@@ -548,6 +557,11 @@ export default class VisibleCursorPlugin extends Plugin {
 		const handleRight = (view: EditorView): boolean => {
 			if (plugin.settings.customCursorStyle !== 'block') return false;
 
+			// Multi-cursor: if more than one cursor exists (including multiple collapsed
+			// cursors from Alt+Click), skip all wrap-correction logic entirely so that
+			// all cursors receive identical CM6-native movement.
+			if (view.state.selection.ranges.length > 1) return false;
+
 			const sel = view.state.selection.main;
 			// Return false when selection is non-empty: Shift+Arrow creates a selection,
 			// which is CM6's default behavior. We intentionally let CM6 extend the selection
@@ -583,6 +597,9 @@ export default class VisibleCursorPlugin extends Plugin {
 
 		const handleDown = (view: EditorView): boolean => {
 			if (plugin.settings.customCursorStyle !== 'block') return false;
+
+			// Multi-cursor: skip wrap-correction so all cursors move identically via CM6.
+			if (view.state.selection.ranges.length > 1) return false;
 
 			const sel = view.state.selection.main;
 			if (!sel.empty) return false;
@@ -633,6 +650,9 @@ export default class VisibleCursorPlugin extends Plugin {
 		const handleUp = (view: EditorView): boolean => {
 			if (plugin.settings.customCursorStyle !== 'block') return false;
 
+			// Multi-cursor: skip wrap-correction so all cursors move identically via CM6.
+			if (view.state.selection.ranges.length > 1) return false;
+
 			const sel = view.state.selection.main;
 			if (!sel.empty) return false;
 
@@ -681,6 +701,15 @@ export default class VisibleCursorPlugin extends Plugin {
 			const sel = update.state.selection.main;
 			const oldSel = update.startState.selection.main;
 			const pos = sel.head;
+
+			// Multi-cursor: if more than one cursor exists (including multiple collapsed
+			// cursors from Alt+Click), clear any pending wrap state and skip all corrective
+			// dispatches so that every cursor receives identical CM6-native movement.
+			if (update.state.selection.ranges.length > 1) {
+				plugin.blockWrapState = null;
+				pendingDownFromWrapPos = null;
+				return;
+			}
 
 			const oldWrapState = plugin.blockWrapState;
 
