@@ -945,11 +945,27 @@ export default class VisibleCursorPlugin extends Plugin {
 		}, 50);
 	}
 
+	/**
+	 * Retrieve the underlying CodeMirror 6 EditorView from an Obsidian MarkdownView.
+	 *
+	 * **Internal API dependency**: Obsidian wraps CM6 in its own Editor abstraction
+	 * and does not expose EditorView through its public API. The `.cm` property is an
+	 * internal implementation detail that the Obsidian community accesses via `as any`
+	 * cast. This helper centralises that access so any future change (rename, removal)
+	 * only requires updating a single location.
+	 *
+	 * Confirmed working: Obsidian 1.x / CM6.
+	 */
+	private getCMView(markdownView: MarkdownView): EditorView | null {
+		if (!markdownView.editor) return null;
+		return (markdownView.editor as any).cm as EditorView ?? null;
+	}
+
 	showFlash() {
 		const view = this.app.workspace.getActiveViewOfType(MarkdownView);
 		if (!view || !view.editor) return;
 
-		const editorView = (view.editor as any).cm as EditorView;
+		const editorView = this.getCMView(view);
 		if (!editorView) return;
 
 		if (this.scrollDebounceTimer) {
@@ -1136,7 +1152,7 @@ ${caretScope} {
 		this.updateCursorStyles();
 		this.app.workspace.iterateAllLeaves((leaf) => {
 			if (leaf.view instanceof MarkdownView) {
-				const editorView = (leaf.view.editor as any).cm as EditorView;
+				const editorView = this.getCMView(leaf.view);
 				if (editorView) {
 					editorView.dispatch({ selection: editorView.state.selection });
 				}
