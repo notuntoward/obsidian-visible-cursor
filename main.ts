@@ -67,7 +67,7 @@ class CustomCursorViewPlugin {
 				const style = plugin.settings.customCursorStyle;
 
 				// For the block cursor, createBlockCursorNavFilter() tracks state via
-				// plugin._blockWrapState.  When set to {logicalPos, showPos, assoc}:
+				// plugin._plugin.blockWrapState.  When set to {logicalPos, showPos, assoc}:
 				//   logicalPos = the actual cursor doc position
 				//   showPos    = the doc position to use for coordinate lookup
 				//   assoc      = the side to use for coordsAtPos
@@ -75,8 +75,7 @@ class CustomCursorViewPlugin {
 				let visualPos: number = pos;
 				let assocForCoords: number;
 				if (style === 'block') {
-					const wrapState = (plugin as any)._blockWrapState?.() as
-						{ logicalPos: number; showPos: number; assoc: 1 | -1 } | null;
+					const wrapState = plugin.blockWrapState;
 					if (wrapState && wrapState.logicalPos === pos) {
 						// Explicit wrapState override from createBlockCursorNavFilter():
 						// show block at the START of the continuation line (assoc=+1).
@@ -254,6 +253,12 @@ class CustomCursorViewPlugin {
 	}
 }
 
+export interface BlockWrapState {
+	logicalPos: number;
+	showPos: number;
+	assoc: 1 | -1;
+}
+
 export default class VisibleCursorPlugin extends Plugin {
 	settings: VisibleCursorPluginSettings;
 	private styleElement: HTMLStyleElement | null = null;
@@ -275,6 +280,9 @@ export default class VisibleCursorPlugin extends Plugin {
 	isComposing: boolean = false;
 	private boundCompositionStart: () => void;
 	private boundCompositionEnd: () => void;
+
+	// Shared state for block cursor wrap navigation
+	blockWrapState: BlockWrapState | null = null;
 
 	// Services
 	colorProvider: ColorProvider;    // public so CustomCursorViewPlugin can read it
@@ -416,11 +424,7 @@ export default class VisibleCursorPlugin extends Plugin {
 	createBlockCursorNavFilter() {
 		const plugin = this;
 
-		let blockWrapState: { logicalPos: number; showPos: number; assoc: 1 | -1 } | null = null;
 		let pendingDownFromWrapPos: number | null = null;
-
-		// Expose to buildMeasureReq via plugin instance
-		(plugin as any)._blockWrapState = () => blockWrapState;
 
 		// Inter-plugin API: expose _visibleCursorForwardChar on the window object so
 		// that other plugins can integrate with the block cursor soft-wrap behavior.
@@ -432,15 +436,15 @@ export default class VisibleCursorPlugin extends Plugin {
 
 			const pos = sel.head;
 
-			if (blockWrapState && blockWrapState.logicalPos === pos) {
-				blockWrapState = null;
+			if (plugin.blockWrapState && plugin.blockWrapState.logicalPos === pos) {
+				plugin.blockWrapState = null;
 				return false;
 			}
 
 			const a = view.coordsAtPos(pos, 1);
 			const b = view.coordsAtPos(pos, -1);
 			if (a && b && Math.abs(a.top - b.top) > 1) {
-				blockWrapState = { logicalPos: pos, showPos: pos, assoc: 1 };
+				plugin.blockWrapState = { logicalPos: pos, showPos: pos, assoc: 1 };
 				pendingDownFromWrapPos = pos;
 				view.dispatch({ selection: EditorSelection.cursor(pos, 1) });
 				return true;
@@ -551,19 +555,19 @@ export default class VisibleCursorPlugin extends Plugin {
 
 			const pos = sel.head;
 
-			if (blockWrapState && blockWrapState.logicalPos === pos) {
-				blockWrapState = null;
+			if (plugin.blockWrapState && plugin.blockWrapState.logicalPos === pos) {
+				plugin.blockWrapState = null;
 				return false;
 			}
 
 			if (sel.assoc !== 1 && isSoftWrap(view, pos)) {
-				blockWrapState = { logicalPos: pos, showPos: pos, assoc: 1 };
+				plugin.blockWrapState = { logicalPos: pos, showPos: pos, assoc: 1 };
 				pendingDownFromWrapPos = pos;
 				view.dispatch({ selection: EditorSelection.cursor(pos, 1) });
 				return true;
 			}
 
-			blockWrapState = null;
+			plugin.blockWrapState = null;
 			return false;
 		};
 
@@ -572,7 +576,7 @@ export default class VisibleCursorPlugin extends Plugin {
 			// Clear state on any leftward movement (selection or not): we've left the
 			// wrap boundary context, so any pending wrap-correction is no longer relevant.
 
-			blockWrapState = null;
+			plugin.blockWrapState = null;
 			pendingDownFromWrapPos = null;
 			return false;
 		};
@@ -586,10 +590,10 @@ export default class VisibleCursorPlugin extends Plugin {
 			const pos = sel.head;
 
 			const wrapStateForPos =
-				blockWrapState &&
-				blockWrapState.logicalPos === pos &&
-				blockWrapState.assoc === 1
-					? blockWrapState
+				plugin.blockWrapState &&
+				plugin.blockWrapState.logicalPos === pos &&
+				plugin.blockWrapState.assoc === 1
+					? plugin.blockWrapState
 					: null;
 
 			const allowWrappedDown =
@@ -598,7 +602,7 @@ export default class VisibleCursorPlugin extends Plugin {
 			console.log('VISIBLE-CURSOR handleDown', {
 				pos,
 				selAssoc: sel.assoc,
-				blockWrapState,
+				blockWrapState: plugin.blockWrapState,
 				pendingDownFromWrapPos,
 				allowWrappedDown
 			});
@@ -611,14 +615,14 @@ export default class VisibleCursorPlugin extends Plugin {
 			pendingDownFromWrapPos = null;
 
 			if (!target) {
-				blockWrapState = null;
+				plugin.blockWrapState = null;
 				return false;
 			}
 
-			// Set blockWrapState for the target position so the renderer shows
+			// Set plugin.blockWrapState for the target position so the renderer shows
 			// the cursor at the start of the continuation line (assoc=1),
 			// just like handleRight() does.
-			blockWrapState = { logicalPos: target.pos, showPos: target.pos, assoc: 1 };
+			plugin.blockWrapState = { logicalPos: target.pos, showPos: target.pos, assoc: 1 };
 			view.dispatch({
 				selection: EditorSelection.cursor(target.pos, 1),
 				scrollIntoView: true
@@ -634,25 +638,25 @@ export default class VisibleCursorPlugin extends Plugin {
 
 			const pos = sel.head;
 
-			// CASE 1: Cursor is at a known wrap boundary (blockWrapState active,
+			// CASE 1: Cursor is at a known wrap boundary (plugin.blockWrapState active,
 			// visually at the start of a continuation line).  Compute the target
 			// ourselves — symmetric to handleDown's findStartOfNextVisualLineFromWrap.
-			if (blockWrapState && blockWrapState.logicalPos === pos && blockWrapState.assoc === 1) {
+			if (plugin.blockWrapState && plugin.blockWrapState.logicalPos === pos && plugin.blockWrapState.assoc === 1) {
 				const target = findStartOfPreviousVisualLineFromWrap(view, pos);
 				console.log('VISIBLE-CURSOR handleUp CASE1', {
-					pos, target, blockWrapState
+					pos, target, blockWrapState: plugin.blockWrapState
 				});
 
 				if (!target) {
-					blockWrapState = null;
+					plugin.blockWrapState = null;
 					return false; // top of document — let CM6 handle
 				}
 
 				if (target.isSoftWrap) {
-					blockWrapState = { logicalPos: target.pos, showPos: target.pos, assoc: 1 };
+					plugin.blockWrapState = { logicalPos: target.pos, showPos: target.pos, assoc: 1 };
 					pendingDownFromWrapPos = target.pos;
 				} else {
-					blockWrapState = null;
+					plugin.blockWrapState = null;
 					pendingDownFromWrapPos = null;
 				}
 
@@ -666,7 +670,7 @@ export default class VisibleCursorPlugin extends Plugin {
 			// CASE 2: Cursor NOT at a known wrap boundary.
 			// Let CM6 handle the movement; navCorrection fixes assoc if needed.
 			console.log('VISIBLE-CURSOR handleUp CASE2', {
-				pos, selAssoc: sel.assoc, blockWrapState
+				pos, selAssoc: sel.assoc, blockWrapState: plugin.blockWrapState
 			});
 			return false;
 		};
@@ -678,24 +682,24 @@ export default class VisibleCursorPlugin extends Plugin {
 			const oldSel = update.startState.selection.main;
 			const pos = sel.head;
 
-			const oldWrapState = blockWrapState;
+			const oldWrapState = plugin.blockWrapState;
 
 			// Note: When user presses Shift+Arrow, handlers fall through to CM6
 			// default behavior, but navCorrection may dispatch new transactions based on 
-			// blockWrapState without checking if the selection is intentional."
+			// plugin.blockWrapState without checking if the selection is intentional."
 			//
 			// This is correct behavior. When the user creates a selection (Shift+Arrow),
 			// the selection IS intentional — it's standard text selection. The wrap-correction
-			// state (blockWrapState, pendingDownFromWrapPos) is specifically for single-cursor
+			// state (blockWrapState: plugin.blockWrapState, pendingDownFromWrapPos) is specifically for single-cursor
 			// navigation through wrapped lines. A selection is a different operation: it selects
 			// text, not navigates cursor position. Clearing the state here prevents wrap-correction
 			// logic from accidentally affecting text selection ranges.
 			//
 			// Additionally, the early-exit below ensures navCorrection doesn't dispatch any 
 			// corrective transactions when sel.empty is false (i.e., there's a selection).
-			if (blockWrapState !== null) {
-				if (update.docChanged || !sel.empty || sel.head !== blockWrapState.logicalPos) {
-					blockWrapState = null;
+			if (plugin.blockWrapState !== null) {
+				if (update.docChanged || !sel.empty || sel.head !== plugin.blockWrapState.logicalPos) {
+					plugin.blockWrapState = null;
 				}
 			}
 
@@ -717,7 +721,7 @@ export default class VisibleCursorPlugin extends Plugin {
 			// 1. Handle moving FORWARD by 1 char from a wrap boundary (e.g. Emacs forward char after End key)
 			if (pos - oldSel.head === 1) {
 				if (isSoftWrap(update.view, pos)) {
-					blockWrapState = { logicalPos: pos, showPos: pos, assoc: 1 };
+					plugin.blockWrapState = { logicalPos: pos, showPos: pos, assoc: 1 };
 					pendingDownFromWrapPos = pos;
 					update.view.dispatch({
 						selection: EditorSelection.cursor(pos, 1)
@@ -725,7 +729,7 @@ export default class VisibleCursorPlugin extends Plugin {
 					return;
 				}
 				if (isSoftWrap(update.view, oldSel.head) && oldSel.assoc === -1) {
-					blockWrapState = { logicalPos: oldSel.head, showPos: oldSel.head, assoc: 1 };
+					plugin.blockWrapState = { logicalPos: oldSel.head, showPos: oldSel.head, assoc: 1 };
 					pendingDownFromWrapPos = oldSel.head;
 					update.view.dispatch({
 						selection: EditorSelection.cursor(oldSel.head, 1)
@@ -736,7 +740,7 @@ export default class VisibleCursorPlugin extends Plugin {
 
 			// 1b. Handle moving BACKWARD by 1 char onto a wrap boundary
 			if (pos - oldSel.head === -1 && isSoftWrap(update.view, pos) && sel.assoc !== 1) {
-				blockWrapState = { logicalPos: pos, showPos: pos, assoc: 1 };
+				plugin.blockWrapState = { logicalPos: pos, showPos: pos, assoc: 1 };
 				pendingDownFromWrapPos = pos;
 				update.view.dispatch({
 					selection: EditorSelection.cursor(pos, 1)
@@ -773,7 +777,7 @@ export default class VisibleCursorPlugin extends Plugin {
 					// But if we moved UP from line c to the start of line b, newCoords (with assoc: -1) is on line a,
 					// so dy is -2 * lineHeight. In that case, we WANT to force assoc: 1 to be on line b.
 					if (dy < -lineHeight * 1.5 && isSoftWrap(update.view, pos) && sel.assoc !== 1) {
-						blockWrapState = { logicalPos: pos, showPos: pos, assoc: 1 };
+						plugin.blockWrapState = { logicalPos: pos, showPos: pos, assoc: 1 };
 						pendingDownFromWrapPos = pos;
 						update.view.dispatch({
 							selection: EditorSelection.cursor(pos, 1)
@@ -786,7 +790,7 @@ export default class VisibleCursorPlugin extends Plugin {
 						if (dy > lineHeight * 0.5 && dy < lineHeight * 1.5) {
 							const target = findStartOfNextVisualLineFromWrap(update.view, oldSel.head);
 							if (target) {
-								blockWrapState = { logicalPos: target.pos, showPos: target.pos, assoc: 1 };
+								plugin.blockWrapState = { logicalPos: target.pos, showPos: target.pos, assoc: 1 };
 								pendingDownFromWrapPos = target.pos;
 								update.view.dispatch({
 									selection: EditorSelection.cursor(target.pos, 1),
@@ -801,7 +805,7 @@ export default class VisibleCursorPlugin extends Plugin {
 							const target = findStartOfPreviousVisualLineFromWrap(update.view, oldSel.head);
 							if (target) {
 								if (target.isSoftWrap) {
-									blockWrapState = { logicalPos: target.pos, showPos: target.pos, assoc: 1 };
+									plugin.blockWrapState = { logicalPos: target.pos, showPos: target.pos, assoc: 1 };
 									pendingDownFromWrapPos = target.pos;
 								}
 								update.view.dispatch({
@@ -817,7 +821,7 @@ export default class VisibleCursorPlugin extends Plugin {
 						if (Math.abs(dy) < 1) {
 							const target = findStartOfNextVisualLineFromWrap(update.view, oldSel.head);
 							if (target) {
-								blockWrapState = { logicalPos: target.pos, showPos: target.pos, assoc: 1 };
+								plugin.blockWrapState = { logicalPos: target.pos, showPos: target.pos, assoc: 1 };
 								pendingDownFromWrapPos = target.pos;
 								update.view.dispatch({
 									selection: EditorSelection.cursor(target.pos, 1),
