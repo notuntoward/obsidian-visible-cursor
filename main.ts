@@ -162,10 +162,21 @@ class CustomCursorViewPlugin {
 					}
 
 					if (char !== ' ') {
-						// Try to get the font properties of the element under the cursor
-						// We use coords.left + 1 and the vertical center to reliably hit the text span
-						const el = document.elementFromPoint(coords.left + 1, coords.top + (coords.bottom - coords.top) / 2);
-						if (el && el.nodeType === Node.ELEMENT_NODE) {
+						// Use view.domAtPos() to get the exact DOM node CM6 rendered for this
+						// character position. This avoids document.elementFromPoint() which:
+						//   • forces a reflow (expensive inside the CM6 measure loop)
+						//   • returns null when the element is obscured by overlapping panels
+						//   • fails for out-of-viewport positions
+						// domAtPos() works directly from CM6's internal DOM map, independent
+						// of scroll position, z-order, or pointer-events.
+						const domInfo = view.domAtPos(visualPos);
+						let el: Element | null = null;
+						if (domInfo.node) {
+							el = domInfo.node.nodeType === Node.TEXT_NODE
+								? (domInfo.node as Text).parentElement
+								: domInfo.node as Element;
+						}
+						if (el) {
 							const computed = getComputedStyle(el);
 							fontStyle = computed.fontStyle;
 							fontWeight = computed.fontWeight;
