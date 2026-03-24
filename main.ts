@@ -1,6 +1,6 @@
 import { Plugin, MarkdownView } from 'obsidian';
 import { EditorView, ViewPlugin, ViewUpdate, keymap } from '@codemirror/view';
-import { EditorSelection, Prec } from '@codemirror/state';
+import { EditorSelection, Transaction, Prec } from '@codemirror/state';
 import { VisibleCursorPluginSettings, DEFAULT_SETTINGS, VisibleCursorSettingTab } from './settings';
 import { ColorProvider } from './src/services/colorProvider';
 import { FlashScheduler, type FlashState } from './src/services/flashScheduler';
@@ -709,6 +709,13 @@ export default class VisibleCursorPlugin extends Plugin {
 		const navCorrection = EditorView.updateListener.of((update: ViewUpdate) => {
 			if (!update.selectionSet && !update.docChanged) return;
 
+			// Explicit re-entrancy guard: every corrective dispatch below is tagged with
+			// 'visible-cursor.wrap-correction'. When navCorrection is re-triggered by one
+			// of those dispatches, bail immediately rather than relying on assoc arithmetic
+			// to implicitly prevent re-dispatching. This makes the loop-breaking contract
+			// visible and robust against future edits.
+			if (update.transactions.some(t => t.isUserEvent('visible-cursor.wrap-correction'))) return;
+
 			const sel = update.state.selection.main;
 			const oldSel = update.startState.selection.main;
 			const pos = sel.head;
@@ -764,7 +771,8 @@ export default class VisibleCursorPlugin extends Plugin {
 					plugin.blockWrapState = { logicalPos: pos, showPos: pos, assoc: 1 };
 					pendingDownFromWrapPos = pos;
 					update.view.dispatch({
-						selection: EditorSelection.cursor(pos, 1)
+						selection: EditorSelection.cursor(pos, 1),
+						annotations: Transaction.userEvent.of('visible-cursor.wrap-correction')
 					});
 					return;
 				}
@@ -772,7 +780,8 @@ export default class VisibleCursorPlugin extends Plugin {
 					plugin.blockWrapState = { logicalPos: oldSel.head, showPos: oldSel.head, assoc: 1 };
 					pendingDownFromWrapPos = oldSel.head;
 					update.view.dispatch({
-						selection: EditorSelection.cursor(oldSel.head, 1)
+						selection: EditorSelection.cursor(oldSel.head, 1),
+						annotations: Transaction.userEvent.of('visible-cursor.wrap-correction')
 					});
 					return;
 				}
@@ -783,7 +792,8 @@ export default class VisibleCursorPlugin extends Plugin {
 				plugin.blockWrapState = { logicalPos: pos, showPos: pos, assoc: 1 };
 				pendingDownFromWrapPos = pos;
 				update.view.dispatch({
-					selection: EditorSelection.cursor(pos, 1)
+					selection: EditorSelection.cursor(pos, 1),
+					annotations: Transaction.userEvent.of('visible-cursor.wrap-correction')
 				});
 				return;
 			}
@@ -828,7 +838,8 @@ export default class VisibleCursorPlugin extends Plugin {
 						plugin.blockWrapState = { logicalPos: pos, showPos: pos, assoc: 1 };
 						pendingDownFromWrapPos = pos;
 						update.view.dispatch({
-							selection: EditorSelection.cursor(pos, 1)
+							selection: EditorSelection.cursor(pos, 1),
+							annotations: Transaction.userEvent.of('visible-cursor.wrap-correction')
 						});
 						return;
 					}
@@ -842,7 +853,8 @@ export default class VisibleCursorPlugin extends Plugin {
 								pendingDownFromWrapPos = target.pos;
 								update.view.dispatch({
 									selection: EditorSelection.cursor(target.pos, 1),
-									scrollIntoView: true
+									scrollIntoView: true,
+									annotations: Transaction.userEvent.of('visible-cursor.wrap-correction')
 								});
 								return;
 							}
@@ -858,7 +870,8 @@ export default class VisibleCursorPlugin extends Plugin {
 								}
 								update.view.dispatch({
 									selection: EditorSelection.cursor(target.pos, 1),
-									scrollIntoView: true
+									scrollIntoView: true,
+									annotations: Transaction.userEvent.of('visible-cursor.wrap-correction')
 								});
 								return;
 							}
@@ -873,7 +886,8 @@ export default class VisibleCursorPlugin extends Plugin {
 								pendingDownFromWrapPos = target.pos;
 								update.view.dispatch({
 									selection: EditorSelection.cursor(target.pos, 1),
-									scrollIntoView: true
+									scrollIntoView: true,
+									annotations: Transaction.userEvent.of('visible-cursor.wrap-correction')
 								});
 								return;
 							}
