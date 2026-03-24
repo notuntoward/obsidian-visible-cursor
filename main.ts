@@ -453,33 +453,6 @@ export default class VisibleCursorPlugin extends Plugin {
 
 		let pendingDownFromWrapPos: number | null = null;
 
-		// Inter-plugin API: expose _visibleCursorForwardChar on the window object so
-		// that other plugins can integrate with the block cursor soft-wrap behavior.
-		(window as any)._visibleCursorForwardChar = (view: EditorView): boolean => {
-			if (plugin.settings.customCursorStyle !== 'block') return false;
-
-			const sel = view.state.selection.main;
-			if (!sel.empty) return false;
-
-			const pos = sel.head;
-
-			if (plugin.blockWrapState && plugin.blockWrapState.logicalPos === pos) {
-				plugin.blockWrapState = null;
-				return false;
-			}
-
-			const a = view.coordsAtPos(pos, 1);
-			const b = view.coordsAtPos(pos, -1);
-			if (a && b && Math.abs(a.top - b.top) > 1) {
-				plugin.blockWrapState = { logicalPos: pos, showPos: pos, assoc: 1 };
-				pendingDownFromWrapPos = pos;
-				view.dispatch({ selection: EditorSelection.cursor(pos, 1) });
-				return true;
-			}
-
-			return false;
-		};
-
 		const isSoftWrap = (view: EditorView, pos: number): boolean => {
 			const line = view.state.doc.lineAt(pos);
 
@@ -1205,6 +1178,5 @@ ${caretScope} {
 		window.removeEventListener('keydown', this.boundKeydown, { capture: true });
 		window.removeEventListener('compositionstart', this.boundCompositionStart, { capture: true });
 		window.removeEventListener('compositionend', this.boundCompositionEnd, { capture: true });
-		delete (window as any)._visibleCursorForwardChar;
 	}
 }
