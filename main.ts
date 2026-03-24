@@ -44,6 +44,8 @@ class CustomCursorViewPlugin {
 
 	destroy() {
 		this.cursorLayer.remove();
+		this.view = null as any;
+		this.plugin = null as any;
 	}
 
 	private buildMeasureReq() {
@@ -526,7 +528,9 @@ export default class VisibleCursorPlugin extends Plugin {
 			if (plugin.settings.customCursorStyle !== 'block') return false;
 
 			const sel = view.state.selection.main;
-			if (!sel.empty) return false;
+			// Return false when selection is non-empty: Shift+Arrow creates a selection,
+			// which is CM6's default behavior. We intentionally let CM6 extend the selection
+			// rather than trying to apply our wrap-correction logic to it.
 
 			const pos = sel.head;
 
@@ -548,7 +552,8 @@ export default class VisibleCursorPlugin extends Plugin {
 
 		const handleLeft = (view: EditorView): boolean => {
 			if (plugin.settings.customCursorStyle !== 'block') return false;
-			if (!view.state.selection.main.empty) return false;
+			// Clear state on any leftward movement (selection or not): we've left the
+			// wrap boundary context, so any pending wrap-correction is no longer relevant.
 
 			blockWrapState = null;
 			pendingDownFromWrapPos = null;
@@ -658,6 +663,19 @@ export default class VisibleCursorPlugin extends Plugin {
 
 			const oldWrapState = blockWrapState;
 
+			// Note: When user presses Shift+Arrow, handlers fall through to CM6
+			// default behavior, but navCorrection may dispatch new transactions based on 
+			// blockWrapState without checking if the selection is intentional."
+			//
+			// This is correct behavior. When the user creates a selection (Shift+Arrow),
+			// the selection IS intentional — it's standard text selection. The wrap-correction
+			// state (blockWrapState, pendingDownFromWrapPos) is specifically for single-cursor
+			// navigation through wrapped lines. A selection is a different operation: it selects
+			// text, not navigates cursor position. Clearing the state here prevents wrap-correction
+			// logic from accidentally affecting text selection ranges.
+			//
+			// Additionally, the early-exit below ensures navCorrection doesn't dispatch any 
+			// corrective transactions when sel.empty is false (i.e., there's a selection).
 			if (blockWrapState !== null) {
 				if (update.docChanged || !sel.empty || sel.head !== blockWrapState.logicalPos) {
 					blockWrapState = null;
@@ -672,6 +690,8 @@ export default class VisibleCursorPlugin extends Plugin {
 
 			if (!update.selectionSet || update.docChanged) return;
 			if (plugin.settings.customCursorStyle !== 'block') return;
+			// EARLY EXIT: When selection is non-empty (e.g., Shift+Arrow), do not apply
+			// any wrap-correction transactions. The user is selecting text, not navigating.
 			if (!sel.empty) return;
 
 			if (update.transactions.some(t => t.isUserEvent('select.pointer'))) return;
@@ -790,6 +810,9 @@ export default class VisibleCursorPlugin extends Plugin {
 		});
 
 		return [
+			// Use highest precedence so this plugin's Home/End override runs before
+			// CodeMirror/Obsidian default keymaps for wrapped-line cursor motion.
+			// If the default binding handles them 1st, special visual-line behavior never runs.
 			Prec.highest(keymap.of([
 				{ key: 'ArrowRight', run: handleRight },
 				{ key: 'ArrowLeft', run: handleLeft },
