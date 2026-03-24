@@ -779,11 +779,19 @@ export default class VisibleCursorPlugin extends Plugin {
 
 			// 2. Generalized vertical movement correction
 			if (pos !== oldSel.head && Math.abs(pos - oldSel.head) > 1) {
-				// If the user pressed End or Home, do NOT apply vertical corrections
-				// because they are horizontal movements that can look like vertical ones
-				if (plugin.lastKey === 'End' || plugin.lastKey === 'Home') {
-					return;
-				}
+				// Consume lastKey immediately: it is a one-shot signal valid only for the
+					// single navCorrection cycle that follows the keydown that set it.
+					// Consuming here prevents stale 'End'/'Home' values from suppressing
+					// wrap corrections in later, unrelated navigation events (e.g. after the
+					// editor loses and regains focus, or after keydowns in other editor panes).
+					const consumedKey = plugin.lastKey;
+					plugin.lastKey = '';
+	
+					// If the user pressed End or Home, do NOT apply vertical corrections
+					// because they are horizontal movements that can look like vertical ones
+					if (consumedKey === 'End' || consumedKey === 'Home') {
+						return;
+					}
 
 				// Also ignore emacs.moveToEnd and emacs.moveToStart which are horizontal
 				if (update.transactions.some(t => t.isUserEvent('emacs.moveToEnd') || t.isUserEvent('emacs.moveToStart'))) {
