@@ -59,6 +59,8 @@ class CustomCursorViewPlugin {
 				if (mode === 'off') return null;
 				if (mode === 'flash' && !plugin.flashActive) return null;
 				if (!view.hasFocus) return null;
+				// During IME composition, fall back to standard Obsidian cursor behavior
+				if (plugin.isComposing) return null;
 
 				const sel = view.state.selection.main;
 				const pos = sel.head;
@@ -270,6 +272,9 @@ export default class VisibleCursorPlugin extends Plugin {
 	private boundEndFenceSoon: () => void;
 	private boundClickEndFence: () => void;
 	private boundKeydown: (e: KeyboardEvent) => void;
+	isComposing: boolean = false;
+	private boundCompositionStart: () => void;
+	private boundCompositionEnd: () => void;
 
 	// Services
 	colorProvider: ColorProvider;    // public so CustomCursorViewPlugin can read it
@@ -330,11 +335,23 @@ export default class VisibleCursorPlugin extends Plugin {
 		this.boundEndFenceSoon = () => { setTimeout(() => { this.clickFenceActive = false; }, 400); };
 		this.boundClickEndFence = () => { this.boundEndFenceSoon(); };
 		this.boundKeydown = (e: KeyboardEvent) => { this.lastKey = e.key; };
+		this.boundCompositionStart = () => {
+			this.isComposing = true;
+			document.body.classList.add('visible-cursor-is-composing');
+			this.refreshDecorations();
+		};
+		this.boundCompositionEnd = () => {
+			this.isComposing = false;
+			document.body.classList.remove('visible-cursor-is-composing');
+			this.refreshDecorations();
+		};
 		window.addEventListener('pointerdown', this.boundStartFence, { capture: true });
 		window.addEventListener('pointerup', this.boundEndFenceSoon, { capture: true });
 		window.addEventListener('pointercancel', this.boundEndFenceSoon, { capture: true });
 		window.addEventListener('click', this.boundClickEndFence, { capture: true });
 		window.addEventListener('keydown', this.boundKeydown, { capture: true });
+		window.addEventListener('compositionstart', this.boundCompositionStart, { capture: true });
+		window.addEventListener('compositionend', this.boundCompositionEnd, { capture: true });
 	}
 
 	createDOMEventHandlers() {
@@ -735,6 +752,11 @@ export default class VisibleCursorPlugin extends Plugin {
 					return;
 				}
 
+				// Also ignore emacs.moveToEnd and emacs.moveToStart which are horizontal
+				if (update.transactions.some(t => t.isUserEvent('emacs.moveToEnd') || t.isUserEvent('emacs.moveToStart'))) {
+					return;
+				}
+
 				const oldAssoc = (oldWrapState !== null && oldSel.head === oldWrapState.logicalPos) ? 1 : (oldSel.assoc || -1);
 				const oldCoords = update.view.coordsAtPos(oldSel.head, oldAssoc);
 				const newCoords = update.view.coordsAtPos(pos, sel.assoc || -1);
@@ -1025,8 +1047,8 @@ export default class VisibleCursorPlugin extends Plugin {
 		// Hide native browser caret so it doesn't appear alongside our custom cursor.
 		// In 'flash' mode, only suppress the caret during active flash windows.
 		const caretScope = mode === 'flash'
-			? 'body.visible-cursor-flash-active .cm-editor.cm-focused .cm-content'
-			: '.cm-editor.cm-focused .cm-content';
+			? 'body.visible-cursor-flash-active:not(.visible-cursor-is-composing) .cm-editor.cm-focused .cm-content'
+			: 'body:not(.visible-cursor-is-composing) .cm-editor.cm-focused .cm-content';
 
 		this.styleElement.textContent = `
 ${caretScope} {
@@ -1079,6 +1101,8 @@ ${caretScope} {
 		window.removeEventListener('pointercancel', this.boundEndFenceSoon, { capture: true });
 		window.removeEventListener('click', this.boundClickEndFence, { capture: true });
 		window.removeEventListener('keydown', this.boundKeydown, { capture: true });
+		window.removeEventListener('compositionstart', this.boundCompositionStart, { capture: true });
+		window.removeEventListener('compositionend', this.boundCompositionEnd, { capture: true });
 		delete (window as any)._visibleCursorForwardChar;
 	}
 }
