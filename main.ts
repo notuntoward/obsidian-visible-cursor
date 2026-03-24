@@ -832,81 +832,104 @@ export default class VisibleCursorPlugin extends Plugin {
 					return;
 				}
 
-				const oldAssoc = (oldWrapState !== null && oldSel.head === oldWrapState.logicalPos) ? 1 : (oldSel.assoc || -1);
-				const oldCoords = update.view.coordsAtPos(oldSel.head, oldAssoc);
-				const newCoords = update.view.coordsAtPos(pos, sel.assoc || -1);
-				
-				if (oldCoords && newCoords) {
-					const dy = newCoords.top - oldCoords.top;
-					const lineHeight = update.view.defaultLineHeight;
-					
-					// 2a. If moved UP from >1 line below and landed on a wrap boundary, force assoc: 1
-					// This replaces the old pendingUpFromPos logic.
-					// We check dy < -lineHeight * 1.5 because if we moved UP from the end of the SAME visual line (line b)
-					// to the end of the previous visual line (line a), dy would be -1 * lineHeight.
-					// In that case, we WANT to stay on line a (assoc: -1).
-					// But if we moved UP from line c to the start of line b, newCoords (with assoc: -1) is on line a,
-					// so dy is -2 * lineHeight. In that case, we WANT to force assoc: 1 to be on line b.
-					if (dy < -lineHeight * 1.5 && isSoftWrap(update.view, pos) && sel.assoc !== 1) {
-						plugin.blockWrapState = { logicalPos: pos, showPos: pos, assoc: 1 };
-						pendingDownFromWrapPos = pos;
-						update.view.dispatch({
-							selection: EditorSelection.cursor(pos, 1),
-							annotations: Transaction.userEvent.of('visible-cursor.wrap-correction')
-						});
-						return;
-					}
-					
-					// 2b. If moved exactly 1 line DOWN from a wrap boundary (e.g. Emacs next line)
-					if (oldWrapState !== null && oldSel.head === oldWrapState.logicalPos) {
-						if (dy > lineHeight * 0.5 && dy < lineHeight * 1.5) {
-							const target = findStartOfNextVisualLineFromWrap(update.view, oldSel.head);
-							if (target) {
-								plugin.blockWrapState = { logicalPos: target.pos, showPos: target.pos, assoc: 1 };
-								pendingDownFromWrapPos = target.pos;
-								update.view.dispatch({
-									selection: EditorSelection.cursor(target.pos, 1),
-									scrollIntoView: true,
-									annotations: Transaction.userEvent.of('visible-cursor.wrap-correction')
-								});
-								return;
-							}
+				// Determine the actual visual top coordinates at the old and new positions.
+					// Use the assoc from blockWrapState when the old position was a known wrap
+					// boundary (assoc: 1), otherwise use sel.assoc/-1 as normal.
+					const oldAssoc = (oldWrapState !== null && oldSel.head === oldWrapState.logicalPos) ? 1 : (oldSel.assoc || -1);
+					const oldCoords = update.view.coordsAtPos(oldSel.head, oldAssoc as 1 | -1);
+					const newCoords = update.view.coordsAtPos(pos, sel.assoc || -1);
+	
+					if (oldCoords && newCoords) {
+						const dy = newCoords.top - oldCoords.top;
+	
+						// Compute the actual height of the visual line at the OLD position by
+						// measuring the gap between the old coord top and the top of the next
+						// visual line (i.e. the bottom of the current line).
+						// This is more accurate than defaultLineHeight, which is a global average
+						// and breaks with mixed line spacing (headings, code blocks, etc.).
+						//
+						// Strategy: sample coordsAtPos at oldSel.head with assoc=-1 to land at
+						// the END of the previous visual segment (bottom of the old line), then
+						// read its .bottom as the "line bottom" reference. If that isn't
+						// available, fall back to defaultLineHeight.
+						const oldLineBottomRef = update.view.coordsAtPos(oldSel.head, -1);
+						const actualLineHeight = oldLineBottomRef
+							? (oldLineBottomRef.bottom - oldLineBottomRef.top)
+							: update.view.defaultLineHeight;
+	
+						// Use 50% of the actual line height as the "crossed a line boundary" threshold:
+						// any |dy| > 0.5 * lineHeight means the cursor is on a different visual line.
+						// Any |dy| between 0.5 and 1.5 * lineHeight means "exactly one line moved".
+						// Any |dy| > 1.5 * lineHeight means "moved more than one line".
+						const halfLine  = actualLineHeight * 0.5;
+						const oneAndHalf = actualLineHeight * 1.5;
+	
+						// 2a. If moved UP more than 1 line and landed on a wrap boundary, force assoc: 1.
+						// The old 1.5× threshold was relative to defaultLineHeight; now it is relative to
+						// the actual height of the line the cursor was on before moving.
+						if (dy < -oneAndHalf && isSoftWrap(update.view, pos) && sel.assoc !== 1) {
+							plugin.blockWrapState = { logicalPos: pos, showPos: pos, assoc: 1 };
+							pendingDownFromWrapPos = pos;
+							update.view.dispatch({
+								selection: EditorSelection.cursor(pos, 1),
+								annotations: Transaction.userEvent.of('visible-cursor.wrap-correction')
+							});
+							return;
 						}
-						
-						// 2c. If moved exactly 1 line UP from a wrap boundary (e.g. Emacs previous line)
-						if (dy < -lineHeight * 0.5 && dy > -lineHeight * 1.5) {
-							const target = findStartOfPreviousVisualLineFromWrap(update.view, oldSel.head);
-							if (target) {
-								if (target.isSoftWrap) {
+	
+						// 2b/2c/2d: only applies when the old position was a known wrap boundary.
+						if (oldWrapState !== null && oldSel.head === oldWrapState.logicalPos) {
+							// 2b. Moved exactly 1 line DOWN from a wrap boundary (e.g. Emacs next line).
+							if (dy > halfLine && dy < oneAndHalf) {
+								const target = findStartOfNextVisualLineFromWrap(update.view, oldSel.head);
+								if (target) {
 									plugin.blockWrapState = { logicalPos: target.pos, showPos: target.pos, assoc: 1 };
 									pendingDownFromWrapPos = target.pos;
+									update.view.dispatch({
+										selection: EditorSelection.cursor(target.pos, 1),
+										scrollIntoView: true,
+										annotations: Transaction.userEvent.of('visible-cursor.wrap-correction')
+									});
+									return;
 								}
-								update.view.dispatch({
-									selection: EditorSelection.cursor(target.pos, 1),
-									scrollIntoView: true,
-									annotations: Transaction.userEvent.of('visible-cursor.wrap-correction')
-								});
-								return;
 							}
-						}
-
-						// 2d. If moved to the end of the SAME visual line (dy === 0), but it wasn't the End key
-						// This happens with Obsidian's goDown command (Emacs next line) because it uses logical columns
-						if (Math.abs(dy) < 1) {
-							const target = findStartOfNextVisualLineFromWrap(update.view, oldSel.head);
-							if (target) {
-								plugin.blockWrapState = { logicalPos: target.pos, showPos: target.pos, assoc: 1 };
-								pendingDownFromWrapPos = target.pos;
-								update.view.dispatch({
-									selection: EditorSelection.cursor(target.pos, 1),
-									scrollIntoView: true,
-									annotations: Transaction.userEvent.of('visible-cursor.wrap-correction')
-								});
-								return;
+	
+							// 2c. Moved exactly 1 line UP from a wrap boundary (e.g. Emacs previous line).
+							if (dy < -halfLine && dy > -oneAndHalf) {
+								const target = findStartOfPreviousVisualLineFromWrap(update.view, oldSel.head);
+								if (target) {
+									if (target.isSoftWrap) {
+										plugin.blockWrapState = { logicalPos: target.pos, showPos: target.pos, assoc: 1 };
+										pendingDownFromWrapPos = target.pos;
+									}
+									update.view.dispatch({
+										selection: EditorSelection.cursor(target.pos, 1),
+										scrollIntoView: true,
+										annotations: Transaction.userEvent.of('visible-cursor.wrap-correction')
+									});
+									return;
+								}
+							}
+	
+							// 2d. Cursor stayed on the SAME visual line (dy ≈ 0). This happens with
+							// Obsidian's goDown command (Emacs next line) when it uses logical columns
+							// and lands at the end of the same wrapped segment instead of the next one.
+							// Threshold: less than half a line height — robust against subpixel drift.
+							if (Math.abs(dy) < halfLine) {
+								const target = findStartOfNextVisualLineFromWrap(update.view, oldSel.head);
+								if (target) {
+									plugin.blockWrapState = { logicalPos: target.pos, showPos: target.pos, assoc: 1 };
+									pendingDownFromWrapPos = target.pos;
+									update.view.dispatch({
+										selection: EditorSelection.cursor(target.pos, 1),
+										scrollIntoView: true,
+										annotations: Transaction.userEvent.of('visible-cursor.wrap-correction')
+									});
+									return;
+								}
 							}
 						}
 					}
-				}
 			}
 		});
 
