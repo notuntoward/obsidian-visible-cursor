@@ -7,7 +7,6 @@ interface VisibleCursorPluginSettings {
   lineHighlightMode: 'left' | 'centered' | 'right' | 'off';
   cursorCustomColorLight: string;
   cursorCustomColorDark: string;
-  lineDuration: number;
   flashDuration: number;
   useThemeColors: boolean;
   flashOnWindowScrolls: boolean;
@@ -23,7 +22,6 @@ const EXPECTED_DEFAULTS: VisibleCursorPluginSettings = {
   lineHighlightMode: 'centered',
   cursorCustomColorLight: '#6496ff',
   cursorCustomColorDark: '#6496ff',
-  lineDuration: 1000,
   flashDuration: 1000,
   useThemeColors: true,
   flashOnWindowScrolls: true,
@@ -38,7 +36,6 @@ describe('DEFAULT_SETTINGS', () => {
     expect(EXPECTED_DEFAULTS).toHaveProperty('lineHighlightMode');
     expect(EXPECTED_DEFAULTS).toHaveProperty('cursorCustomColorLight');
     expect(EXPECTED_DEFAULTS).toHaveProperty('cursorCustomColorDark');
-    expect(EXPECTED_DEFAULTS).toHaveProperty('lineDuration');
     expect(EXPECTED_DEFAULTS).toHaveProperty('flashDuration');
     expect(EXPECTED_DEFAULTS).toHaveProperty('useThemeColors');
     expect(EXPECTED_DEFAULTS).toHaveProperty('flashOnWindowScrolls');
@@ -71,18 +68,9 @@ describe('DEFAULT_SETTINGS', () => {
     expect(EXPECTED_DEFAULTS.cursorCustomColorDark).toBe('#6496ff');
   });
 
-  it('should have positive line duration', () => {
-    expect(EXPECTED_DEFAULTS.lineDuration).toBeGreaterThan(0);
-    expect(EXPECTED_DEFAULTS.lineDuration).toBe(1000);
-  });
-
   it('should have positive flash duration', () => {
     expect(EXPECTED_DEFAULTS.flashDuration).toBeGreaterThan(0);
     expect(EXPECTED_DEFAULTS.flashDuration).toBe(1000);
-  });
-
-  it('should have line and flash duration equal by default', () => {
-    expect(EXPECTED_DEFAULTS.lineDuration).toBe(EXPECTED_DEFAULTS.flashDuration);
   });
 
   it('should have useThemeColors enabled by default', () => {
@@ -112,7 +100,6 @@ describe('VisibleCursorPluginSettings Type', () => {
       lineHighlightMode: 'centered',
       cursorCustomColorLight: '#6496ff',
       cursorCustomColorDark: '#6496ff',
-      lineDuration: 1000,
       flashDuration: 1000,
       useThemeColors: true,
       flashOnWindowScrolls: true,

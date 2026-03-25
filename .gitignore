@@ -16,6 +16,7 @@ main.js
 
 # Other
 .env
+stash_diff.txt
 
 # User settings - stored per-vault by Obsidian
 data.json

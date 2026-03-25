@@ -2,8 +2,12 @@
 
 Never lose your cursor again! Options for more visible cursors plus configurable cursor flashes after movement.
 
+> **Note:** Screenshots and demo GIF will be added before the community plugin submission. See [`screenshots/README.md`](screenshots/README.md) for capture instructions.
+
+<!-- TODO: Uncomment when screenshots are captured
 ![Plugin Demo](screenshots/demo.gif)
 *Flash effects help you track cursor movement across your notes*
+-->
 
 ## The Problem
 
@@ -17,19 +21,21 @@ Obsidian's default cursor can be difficult to track when:
 
 **Visible Cursor** provides visual cues when your cursor moves, making it impossible to lose track of your position.
 
+<!-- TODO: Uncomment when screenshots are captured
 ![Before and After](screenshots/before-after.png)
 *Left: Default Obsidian cursor easily lost • Right: Visible Cursor with flash effect*
+-->
 
 ## Visual Examples
 
 ### Custom Cursor Styles
 
-![Cursor Styles](screenshots/cursor-styles.png)
+<!-- ![Cursor Styles](screenshots/cursor-styles.png) -->
 *Choose between block cursor (left) or bar cursor (right)*
 
 ### Line Highlight Options
 
-![Line Highlights](screenshots/line-highlights.png)
+<!-- ![Line Highlights](screenshots/line-highlights.png) -->
 *Flash effects: Left-to-right, Centered, Right-to-left*
 
 ## Installation
@@ -42,7 +48,7 @@ Download the latest release from the [GitHub releases page](https://github.com/n
 
 ### Cursor Appearance
 
-![Cursor Settings](screenshots/settings-cursor.png)
+<!-- ![Cursor Settings](screenshots/settings-cursor.png) -->
 
 **Show custom cursor**
 - "Always on" for persistent highlighting (including at end of line)
@@ -55,7 +61,7 @@ Download the latest release from the [GitHub releases page](https://github.com/n
 
 ### Flash Effect
 
-![Flash Settings](screenshots/settings-flash.png)
+<!-- ![Flash Settings](screenshots/settings-flash.png) -->
 
 **Line highlight** (default: centered)
 - "Left" for left-to-right fade
@@ -71,17 +77,17 @@ Download the latest release from the [GitHub releases page](https://github.com/n
 
 ### Flash Triggers
 
-![Trigger Settings](screenshots/settings-triggers.png)
+<!-- ![Trigger Settings](screenshots/settings-triggers.png) -->
 
 **On scroll** (default: ON)
 - Show flash when the view scrolls significantly
 
 **On file switch** (default: ON)
 - Show flash when switching between notes or panes
-
 ### Colors
 
-![Color Settings](screenshots/settings-colors.png)
+<!-- ![Color Settings](screenshots/settings-colors.png) -->
+
 
 **Use theme colors** (default: ON)
 - Matches your Obsidian theme accent color

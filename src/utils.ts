@@ -4,6 +4,37 @@
  */
 
 /**
+ * Apply backwards-compatibility migrations to a raw settings object loaded
+ * from data.json.  The argument is mutated in-place and returned.
+ *
+ * Extracted as a pure function (no Obsidian imports) so it can be unit-tested
+ * without an Obsidian plugin instance.
+ */
+export function migrateSettings(raw: Record<string, unknown>): Record<string, unknown> {
+	// Rename blockCursorMode -> customCursorMode  (pre-v1.0.x)
+	if (raw.blockCursorMode !== undefined && raw.customCursorMode === undefined) {
+		raw.customCursorMode = raw.blockCursorMode;
+		delete raw.blockCursorMode;
+	}
+	// Rename blockCursorStyle -> customCursorStyle  (pre-v1.0.x)
+	if (raw.blockCursorStyle !== undefined && raw.customCursorStyle === undefined) {
+		raw.customCursorStyle = raw.blockCursorStyle;
+		delete raw.blockCursorStyle;
+	}
+	// Rename thick-vertical cursor style -> bar  (v1.0.x)
+	if (raw.customCursorStyle === 'thick-vertical') {
+		raw.customCursorStyle = 'bar';
+	}
+	// Rename lineDuration -> flashDuration  (v1.0.15)
+	if (raw.lineDuration !== undefined && raw.flashDuration === undefined) {
+		raw.flashDuration = raw.lineDuration;
+		delete raw.lineDuration;
+	}
+	return raw;
+}
+
+
+/**
  * Convert a hex color string to RGB values
  */
 export function hexToRgb(hex: string): { r: number; g: number; b: number } {
@@ -68,13 +99,13 @@ export function getContrastColor(hexColor: string, bgColor: string = '#ffffff', 
 	try {
 		bgContrast = getContrastRatio(hexColor, bgColor);
 	} catch (e) {
-		console.error('Error calculating contrast with background:', e);
+		// fallback to default contrast value
 	}
 
 	try {
 		textContrast = getContrastRatio(hexColor, textColor);
 	} catch (e) {
-		console.error('Error calculating contrast with text:', e);
+		// fallback to default contrast value
 	}
 
 	// Choose whichever has the highest contrast

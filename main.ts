@@ -2,6 +2,7 @@ import { Plugin, MarkdownView } from 'obsidian';
 import { EditorView, ViewPlugin, ViewUpdate, keymap } from '@codemirror/view';
 import { EditorSelection, Transaction, Prec } from '@codemirror/state';
 import { VisibleCursorPluginSettings, DEFAULT_SETTINGS, VisibleCursorSettingTab } from './settings';
+import { migrateSettings } from './src/utils';
 import { ColorProvider } from './src/services/colorProvider';
 import { FlashScheduler, type FlashState } from './src/services/flashScheduler';
 import { FlashRenderer } from './src/services/flashRenderer';
@@ -987,7 +988,7 @@ export default class VisibleCursorPlugin extends Plugin {
 			if (this.settings.customCursorMode === 'flash') {
 				document.body.classList.remove('visible-cursor-flash-active');
 			}
-		}, this.settings.lineDuration);
+		}, this.settings.flashDuration);
 	}
 
 	/** Get cursor coords using selection.assoc for correct soft-wrap boundary handling */
@@ -1028,9 +1029,9 @@ export default class VisibleCursorPlugin extends Plugin {
 			);
 			pointer-events: none;
 			z-index: 1;
-			animation: flash-line-fade ${this.settings.lineDuration}ms ease-out;
+			animation: flash-line-fade ${this.settings.flashDuration}ms ease-out;
 		`;
-		this.flashRenderer.render('left', cssText, this.settings.lineDuration);
+		this.flashRenderer.render('left', cssText, this.settings.flashDuration);
 	}
 
 	showLineFlashRightToLeft(editorView: EditorView) {
@@ -1062,9 +1063,9 @@ export default class VisibleCursorPlugin extends Plugin {
 			);
 			pointer-events: none;
 			z-index: 1;
-			animation: flash-line-fade ${this.settings.lineDuration}ms ease-out;
+			animation: flash-line-fade ${this.settings.flashDuration}ms ease-out;
 		`;
-		this.flashRenderer.render('right', cssText, this.settings.lineDuration);
+		this.flashRenderer.render('right', cssText, this.settings.flashDuration);
 	}
 
 	showCursorCenteredFlash(editorView: EditorView) {
@@ -1106,9 +1107,9 @@ export default class VisibleCursorPlugin extends Plugin {
 			);
 			pointer-events: none;
 			z-index: 1;
-			animation: flash-line-fade ${this.settings.lineDuration}ms ease-out;
+			animation: flash-line-fade ${this.settings.flashDuration}ms ease-out;
 		`;
-		this.flashRenderer.render('centered', cssText, this.settings.lineDuration);
+		this.flashRenderer.render('centered', cssText, this.settings.flashDuration);
 	}
 
 	updateCursorStyles(): void {
@@ -1153,19 +1154,9 @@ ${caretScope} {
 	}
 
 	async loadSettings() {
-		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
-		const anySettings = this.settings as any;
-		if (anySettings.blockCursorMode !== undefined && anySettings.customCursorMode === undefined) {
-			anySettings.customCursorMode = anySettings.blockCursorMode;
-			delete anySettings.blockCursorMode;
-		}
-		if (anySettings.blockCursorStyle !== undefined && anySettings.customCursorStyle === undefined) {
-			anySettings.customCursorStyle = anySettings.blockCursorStyle;
-			delete anySettings.blockCursorStyle;
-		}
-		if (anySettings.customCursorStyle === 'thick-vertical') {
-			anySettings.customCursorStyle = 'bar';
-		}
+		const raw = Object.assign({}, DEFAULT_SETTINGS, await this.loadData()) as Record<string, unknown>;
+		migrateSettings(raw);
+		this.settings = raw as unknown as VisibleCursorPluginSettings;
 		await this.saveSettings();
 	}
 

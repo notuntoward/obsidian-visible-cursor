@@ -16,40 +16,6 @@
   pointer-events: none; /* ensure overlays never catch clicks */
 }
 
-/* Hide the native Obsidian cursor when custom cursor decorations are present */
-.cm-content:has(.cursor-flash-block-mark),
-.cm-content:has(.cursor-flash-bar),
-.cm-content:has(.cursor-flash-bar-mark),
-.cm-content:has(.cursor-flash-thinbar-mark),
-.cm-line:has(.cursor-flash-block-mark),
-.cm-line:has(.cursor-flash-bar),
-.cm-line:has(.cursor-flash-bar-mark),
-.cm-line:has(.cursor-flash-thinbar-mark) {
-  caret-color: transparent !important;
-}
-
-/* Hide CodeMirror's cursor layer when custom cursor is active */
-.cm-content:has(.cursor-flash-block-mark) .cm-cursorLayer,
-.cm-content:has(.cursor-flash-bar) .cm-cursorLayer,
-.cm-content:has(.cursor-flash-bar-mark) .cm-cursorLayer,
-.cm-content:has(.cursor-flash-thinbar-mark) .cm-cursorLayer {
-  visibility: hidden !important;
-}
-
-/* Make block cursor overlay click-through too */
-.cursor-flash-block-mark {
-  pointer-events: none;
-  will-change: opacity, transform;
-}
-
-/* Bar cursor - imitates standard Obsidian cursor with custom color */
-/* NOTE: no contain:paint here because the bar is a zero-width element whose
-   visual bar child overflows - contain:paint would clip it to nothing. */
-.cursor-flash-bar {
-  pointer-events: none;
-  overflow: visible;
-  will-change: opacity, transform;
-}
 
 @keyframes flash-char-fade {
 	0% {

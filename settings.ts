@@ -8,7 +8,6 @@ export interface VisibleCursorPluginSettings {
 	lineHighlightMode: 'left' | 'centered' | 'right' | 'off';
 	cursorCustomColorLight: string;
 	cursorCustomColorDark: string;
-	lineDuration: number;
 	flashDuration: number;
 	useThemeColors: boolean;
 	flashOnWindowScrolls: boolean;
@@ -22,7 +21,6 @@ export const DEFAULT_SETTINGS: VisibleCursorPluginSettings = {
 	lineHighlightMode: 'centered',
 	cursorCustomColorLight: '#6496ff',
 	cursorCustomColorDark: '#6496ff',
-	lineDuration: 1000,
 	flashDuration: 1000,
 	useThemeColors: true,
 	flashOnWindowScrolls: true,
@@ -101,17 +99,16 @@ export class VisibleCursorSettingTab extends PluginSettingTab {
 
 		const fadeDurationSetting = new Setting(containerEl)
 			.setName('Flash duration')
-			.setDesc(`How long the flash lasts (applies to line highlight and 'Only during flash' cursor) (0.2s - 1.5s) - ${(this.plugin.settings.lineDuration / 1000).toFixed(2)}s`)
+			.setDesc(`How long the flash lasts (applies to line highlight and 'Only during flash' cursor) (0.2s - 1.5s) - ${(this.plugin.settings.flashDuration / 1000).toFixed(2)}s`)
 			.addSlider(slider => slider
 				.setLimits(0.2, 1.5, 0.05)
-				.setValue(this.plugin.settings.lineDuration / 1000)
+				.setValue(this.plugin.settings.flashDuration / 1000)
 				.setDynamicTooltip()
 				.onChange(async (value: number) => {
-					this.plugin.settings.lineDuration = Math.round(value * 1000);
-					this.plugin.settings.flashDuration = Math.round(value * 1000);
-					fadeDurationSetting.setDesc(`How long the flash lasts (applies to line highlight and 'Only during flash' cursor) (0.2s - 1.5s) - ${value.toFixed(2)}s`);
-					await this.plugin.saveSettings();
-				}));
+						this.plugin.settings.flashDuration = Math.round(value * 1000);
+						fadeDurationSetting.setDesc(`How long the flash lasts (applies to line highlight and 'Only during flash' cursor) (0.2s - 1.5s) - ${value.toFixed(2)}s`);
+						await this.plugin.saveSettings();
+					}));
 
 		const flashSizeSetting = new Setting(containerEl)
 			.setName('Flash size')

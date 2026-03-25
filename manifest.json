@@ -2,7 +2,7 @@
 	"id": "visible-cursor",
 	"name": "Visible Cursor",
 	"version": "1.0.14",
-	"minAppVersion": "1.0.0",
+	"minAppVersion": "1.4.0",
 	"description": "Visual aids to prevent losing track of your cursor.",
 	"author": "Scott Otterson",
 	"authorUrl": "https://github.com/notuntoward",
