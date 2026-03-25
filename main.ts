@@ -613,14 +613,6 @@ export default class VisibleCursorPlugin extends Plugin {
 			const allowWrappedDown =
 				!!wrapStateForPos || pendingDownFromWrapPos === pos;
 
-			console.log('VISIBLE-CURSOR handleDown', {
-				pos,
-				selAssoc: sel.assoc,
-				blockWrapState: plugin.blockWrapState,
-				pendingDownFromWrapPos,
-				allowWrappedDown
-			});
-
 			if (!allowWrappedDown) {
 				return false;
 			}
@@ -660,9 +652,6 @@ export default class VisibleCursorPlugin extends Plugin {
 			// ourselves — symmetric to handleDown's findStartOfNextVisualLineFromWrap.
 			if (plugin.blockWrapState && plugin.blockWrapState.logicalPos === pos && plugin.blockWrapState.assoc === 1) {
 				const target = findStartOfPreviousVisualLineFromWrap(view, pos);
-				console.log('VISIBLE-CURSOR handleUp CASE1', {
-					pos, target, blockWrapState: plugin.blockWrapState
-				});
 
 				if (!target) {
 					plugin.blockWrapState = null;
@@ -677,18 +666,18 @@ export default class VisibleCursorPlugin extends Plugin {
 					pendingDownFromWrapPos = null;
 				}
 
+				// Tag with 'visible-cursor.wrap-correction' so navCorrection's early-exit
+				// guard skips this transaction and does not undo the CASE1 movement.
 				view.dispatch({
 					selection: EditorSelection.cursor(target.pos, 1),
-					scrollIntoView: true
+					scrollIntoView: true,
+					annotations: Transaction.userEvent.of('visible-cursor.wrap-correction')
 				});
 				return true;
 			}
 
 			// CASE 2: Cursor NOT at a known wrap boundary.
 			// Let CM6 handle the movement; navCorrection fixes assoc if needed.
-			console.log('VISIBLE-CURSOR handleUp CASE2', {
-				pos, selAssoc: sel.assoc, blockWrapState: plugin.blockWrapState
-			});
 			return false;
 		};
 
@@ -867,8 +856,11 @@ export default class VisibleCursorPlugin extends Plugin {
 								}
 							}
 	
-							// 2c. Moved exactly 1 line UP from a wrap boundary (e.g. Emacs previous line).
-							if (dy < -halfLine && dy > -oneAndHalf) {
+							// 2c. Moved UP from a wrap boundary (e.g. Emacs previous line).
+							// We don't cap at 1.5× line height: when the wrap boundary is preceded
+							// by a short logical line (e.g. "Bob"), goUp can overshoot by 2+ visual
+							// lines. We always want exactly 1 visual line up from the wrap boundary.
+							if (dy < -halfLine) {
 								const target = findStartOfPreviousVisualLineFromWrap(update.view, oldSel.head);
 								if (target) {
 									if (target.isSoftWrap) {
