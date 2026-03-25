@@ -452,6 +452,78 @@ export default class VisibleCursorPlugin extends Plugin {
 	createBlockCursorNavFilter() {
 		const plugin = this;
 
+		// ─────────────────────────────────────────────────────────────────────
+		// Implicit state machine for block cursor navigation at soft-wrap boundaries
+		//
+		// STATE VARIABLES
+		// ───────────────
+		//   plugin.blockWrapState  (BlockWrapState | null)  — class field on VisibleCursorPlugin
+		//     Non-null when the cursor is visually sitting at the START of a soft-wrap
+		//     continuation line.  The renderer reads this to override the coordinate
+		//     lookup (assoc=+1 instead of CM6's default assoc=-1).
+		//     Shape: { logicalPos, showPos, assoc }
+		//
+		//   pendingDownFromWrapPos  (number | null)  — closure variable in this function
+		//     Set to the wrap-boundary position whenever we park the cursor there via
+		//     a keymap handler (handleRight, handleUp).  Consumed by handleDown so that
+		//     ArrowDown uses the visual x-position of the wrap boundary as its column
+		//     anchor rather than the logical-line column.
+		//     NOTE: this is a timing bridge — blockWrapState may be cleared by
+		//     navCorrection between keystrokes, but pendingDownFromWrapPos persists
+		//     one more cycle so handleDown still knows it came from a wrap boundary.
+		//
+		// STATES
+		// ──────
+		//   IDLE
+		//     blockWrapState        = null
+		//     pendingDownFromWrapPos = null
+		//
+		//   AT_WRAP_BOUNDARY
+		//     blockWrapState        = { logicalPos: P, showPos: P, assoc: 1 }
+		//     pendingDownFromWrapPos = P
+		//     (cursor is visually at the start of continuation line, logical pos = P)
+		//
+		// TRANSITIONS
+		// ───────────
+		//   Any state → AT_WRAP_BOUNDARY
+		//     Triggered by: handleRight   (ArrowRight arrives at wrap boundary)
+		//                   handleUp      (ArrowUp lands on a wrap-start)
+		//                   navCorrection (CM6-native +1/-1 char move; vertical move > 1 line up;
+		//                                 vertical move 1 line down from wrap; vertical same-line)
+		//
+		//   AT_WRAP_BOUNDARY → IDLE
+		//     Triggered by: handleRight   (second ArrowRight — advances past boundary)
+		//                   handleLeft    (any ArrowLeft — leaves wrap context)
+		//                   handleDown    (ArrowDown executed, no new wrap boundary at target)
+		//                   handleUp      (ArrowUp executed, no new wrap boundary at target)
+		//                   navCorrection (doc changed, selection non-empty, or cursor moved away)
+		//
+		//   AT_WRAP_BOUNDARY → AT_WRAP_BOUNDARY  (re-arm at new position)
+		//     Triggered by: handleDown    (ArrowDown lands at another wrap-start)
+		//                   handleUp      (ArrowUp lands at another wrap-start)
+		//                   navCorrection (corrective dispatch after a wrap-boundary landing)
+		//
+		// READERS
+		// ───────
+		//   buildMeasureReq.read()  — reads blockWrapState to choose visualPos/assocForCoords
+		//   handleDown()            — reads pendingDownFromWrapPos OR blockWrapState to decide
+		//                            whether to compute wrap-aware vertical movement
+		//
+		// WRITER LOCATIONS
+		// ────────────────
+		//   handleRight()     sets AT_WRAP or clears (IDLE)            lines ~570–583
+		//   handleLeft()      always clears both (IDLE)                 lines ~591–593
+		//   handleDown()      sets AT_WRAP or clears; consumes pending  lines ~622–637
+		//   handleUp()        sets AT_WRAP or clears; may set pending   lines ~654–678
+		//   navCorrection     clears on guard conditions                lines ~723–733
+		//                     sets AT_WRAP on +1 char forward           lines ~747–763
+		//                     sets AT_WRAP on -1 char backward          lines ~767–774
+		//                     sets AT_WRAP on >1-line-up landing        lines ~833–841
+		//                     sets AT_WRAP on 1-line-down from wrap     lines ~848–857
+		//                     sets AT_WRAP on up from wrap              lines ~864–878
+		//                     sets AT_WRAP on same-visual-line glitch   lines ~884–896
+		// ─────────────────────────────────────────────────────────────────────
+
 		let pendingDownFromWrapPos: number | null = null;
 
 		const isSoftWrap = (view: EditorView, pos: number): boolean => {
