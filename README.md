@@ -44,6 +44,20 @@ Obsidian's default cursor can be difficult to track when:
 
 Download the latest release from the [GitHub releases page](https://github.com/notuntoward/obsidian-cursor-cues/releases). Extract `main.js`, `manifest.json`, and `styles.css` into `.obsidian/plugins/visible-cursor/`, then reload Obsidian.
 
+## Implementation Note for Reviewers
+
+This plugin uses CodeMirror 6 geometry and DOM APIs to render its custom cursor and line-flash effects accurately. In particular, those features depend on low-level editor-view capabilities such as cursor coordinate measurement and access to the rendered editor DOM.
+
+Obsidian's public editor API does not currently expose the underlying CodeMirror [`EditorView`](main.ts:1024) needed for those operations. Because of that, the plugin accesses the CM6 view through a single helper, [`VisibleCursorPlugin.getCMView()`](main.ts:1024), which isolates the only internal-API dependency in the codebase.
+
+That access is intentionally limited and defensive:
+
+- It is used only for rendering-related features that require CM6 view geometry.
+- It is centralized in one location so future Obsidian changes require a single update point.
+- Failure is non-destructive: if the CM6 view is unavailable, features that need it simply no-op rather than throwing, modifying note content, or interfering with normal editing.
+
+If Obsidian exposes an equivalent public API in the future, this plugin should switch to that public surface.
+
 ## Settings Guide
 
 ### Cursor Appearance
