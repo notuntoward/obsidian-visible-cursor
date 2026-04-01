@@ -136,9 +136,8 @@ describe('ColorProvider', () => {
       vi.spyOn(colorProvider as any, 'getThemeAccentColor').mockReturnValue('#ff0000');
 
       const result = colorProvider.getColor(settings);
-      // Should be a lightened version: 30% accent + 70% white
-      // R: 255*0.30 + 255*0.70 = 255, G: 0*0.30 + 255*0.70 = 178.5, B: 0*0.30 + 255*0.70 = 178.5
-      expect(result.color).toContain('rgb');
+      // 30% accent + 70% white = rgb(255, 179, 179)
+      expect(result.color).toBe('rgb(255, 179, 179)');
       expect(result.opacity).toBe(0.8);
     });
 
@@ -160,8 +159,8 @@ describe('ColorProvider', () => {
       vi.spyOn(colorProvider as any, 'getThemeAccentColor').mockReturnValue('#0066ff');
 
       const result = colorProvider.getColor(settings);
-      // Should be a slightly lightened version: 85% accent + 15% white
-      expect(result.color).toContain('rgb');
+      // 85% accent + 15% white = rgb(38, 125, 255)
+      expect(result.color).toBe('rgb(38, 125, 255)');
       expect(result.opacity).toBe(0.8);
     });
   });
@@ -204,7 +203,7 @@ describe('ColorProvider', () => {
       vi.unstubAllGlobals();
     });
 
-    it('should consider original text color when provided', () => {
+    it('should prefer the original text color when contrast is similarly strong', () => {
       const mockGetComputedStyle = vi.fn().mockReturnValue({
         getPropertyValue: (prop: string) => {
           if (prop === '--background-primary') return '#1a1a1a';
@@ -215,30 +214,25 @@ describe('ColorProvider', () => {
       });
       vi.stubGlobal('getComputedStyle', mockGetComputedStyle);
 
-      // Dark cursor with light original text color
-      const result = colorProvider.getContrastColor('#2d2d2d', '#e0e0e0');
-      // The algorithm picks the best contrast - white or the original color
-      // Both should have good contrast on dark background
-      expect(['#ffffff', '#e0e0e0']).toContain(result);
+      const result = colorProvider.getContrastColor('#2d2d2d', 'rgb(255, 255, 255)');
+      expect(result).toBe('rgb(255, 255, 255)');
 
       vi.unstubAllGlobals();
     });
 
-    it('should use text-on-accent when available', () => {
+    it('should prefer text-on-accent over later candidates when contrast is comparable', () => {
       const mockGetComputedStyle = vi.fn().mockReturnValue({
         getPropertyValue: (prop: string) => {
           if (prop === '--background-primary') return '#ffffff';
           if (prop === '--text-normal') return '#333333';
-          if (prop === '--text-on-accent') return '#ffffff';
+          if (prop === '--text-on-accent') return '#fefefe';
           return '';
         }
       });
       vi.stubGlobal('getComputedStyle', mockGetComputedStyle);
 
-      // Dark accent color - text-on-accent should be preferred
-      const result = colorProvider.getContrastColor('#6496ff');
-      // Should prefer text-on-accent (#ffffff) for accent colors
-      expect(['#ffffff', '#000000']).toContain(result);
+      const result = colorProvider.getContrastColor('#003366');
+      expect(result).toBe('#fefefe');
 
       vi.unstubAllGlobals();
     });

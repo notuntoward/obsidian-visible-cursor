@@ -103,6 +103,7 @@ describe('FlashRenderer Service', () => {
       const css = renderer.buildLeftGradientCSS(position, size, gradient);
 
       expect(css).toContain('rgba(255, 0, 0, 0.5)');
+      expect(css).toContain('rgba(255, 0, 0, 0.25) 15%');
     });
 
     it('should calculate fade position based on fadePercent', () => {
@@ -117,6 +118,7 @@ describe('FlashRenderer Service', () => {
       const css = renderer.buildLeftGradientCSS(position, size, gradient);
 
       // Should include the fade percent in the gradient stops
+      expect(css).toContain('rgba(0, 0, 0, 0.5) 20%');
       expect(css).toContain('40%');
     });
   });
@@ -157,6 +159,8 @@ describe('FlashRenderer Service', () => {
       // But different gradient directions
       expect(leftCss).toContain('to right');
       expect(rightCss).toContain('to left');
+      expect(rightCss).toContain('rgba(0, 128, 255, 0.3) 12.5%');
+      expect(rightCss).toContain('transparent 25%');
     });
   });
 
@@ -211,8 +215,11 @@ describe('FlashRenderer Service', () => {
 
       // Left edge = cursorPercent - spreadPercent = 30
       // Right edge = cursorPercent + spreadPercent = 70
-      expect(css).toContain('30%');
-      expect(css).toContain('70%');
+      expect(css).toContain('transparent 30%');
+      expect(css).toContain('rgba(0, 0, 0, 0.5) 40%');
+      expect(css).toContain('rgba(0, 0, 0, 1) 50%');
+      expect(css).toContain('rgba(0, 0, 0, 0.5) 60%');
+      expect(css).toContain('transparent 70%');
     });
 
     it('should clamp edges to valid range', () => {
@@ -231,7 +238,8 @@ describe('FlashRenderer Service', () => {
       const css = renderer.buildCenteredGradientCSS(position, size, gradient);
 
       // Left edge should be clamped to 0
-      expect(css).toContain('0%');
+      expect(css).toContain('transparent 0%');
+      expect(css).toContain('transparent 25%');
     });
 
     it('should clamp right edge to 100', () => {
@@ -250,7 +258,8 @@ describe('FlashRenderer Service', () => {
       const css = renderer.buildCenteredGradientCSS(position, size, gradient);
 
       // Right edge should be clamped to 100
-      expect(css).toContain('100%');
+      expect(css).toContain('transparent 100%');
+      expect(css).toContain('transparent 75%');
     });
 
     it('should include fade opacity in gradient stops', () => {
