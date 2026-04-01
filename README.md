@@ -42,7 +42,7 @@ Obsidian's default cursor can be difficult to track when:
 
 ### Manual Installation
 
-Download the latest release from the [GitHub releases page](https://github.com/notuntoward/obsidian-cursor-cues/releases). Extract `main.js`, `manifest.json`, and `styles.css` into `.obsidian/plugins/visible-cursor/`, then reload Obsidian.
+Download the latest release from the [GitHub releases page](https://github.com/notuntoward/obsidian-visible-cursor/releases). Extract `main.js`, `manifest.json`, and `styles.css` into `.obsidian/plugins/visible-cursor/`, then reload Obsidian.
 
 ## Implementation Note for Reviewers
 
@@ -83,10 +83,10 @@ If Obsidian exposes an equivalent public API in the future, this plugin should s
 - "Right" for right-to-left fade
 - "Off" for character decoration only
 
-**Flash duration** (default: 0.5s)
+**Flash duration** (default: 1s)
 - Control how long the flash effect lasts (0.2s - 1.5s)
 
-**Flash size** (default: 8 characters)
+**Flash size** (default: 15 characters)
 - Adjust the width of the line highlight (4-15 characters)
 
 ### Flash Triggers
