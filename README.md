@@ -56,6 +56,8 @@ That access is intentionally limited and defensive:
 - It is centralized in one location so future Obsidian changes require a single update point.
 - Failure is non-destructive: if the CM6 view is unavailable, features that need it simply no-op rather than throwing, modifying note content, or interfering with normal editing.
 
+- Global capture-phase event listeners (`pointerdown`, `pointerup`, `pointercancel`, `click`, `keydown`, `compositionstart`, `compositionend`) are used to distinguish user-initiated navigation from editor-driven focus changes. Without capture-phase access, the plugin cannot reliably determine whether a cursor position change is a deliberate user action (arrow keys, clicking) versus a side effect of Obsidian managing focus internally. These listeners are cleaned up in `onunload()` and do not interfere with normal editing.
+
 If Obsidian exposes an equivalent public API in the future, this plugin should switch to that public surface.
 
 ## Settings Guide
