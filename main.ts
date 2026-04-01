@@ -1227,9 +1227,11 @@ ${caretScope} {
 
 	async loadSettings() {
 		const raw = Object.assign({}, DEFAULT_SETTINGS, await this.loadData()) as Record<string, unknown>;
-		migrateSettings(raw);
+		const migrated = migrateSettings(raw);
 		this.settings = raw as unknown as VisibleCursorPluginSettings;
-		await this.saveSettings();
+		if (migrated) {
+			await this.saveSettings();
+		}
 	}
 
 	async saveSettings() {

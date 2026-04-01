@@ -7,30 +7,37 @@
  * Apply backwards-compatibility migrations to a raw settings object loaded
  * from data.json.  The argument is mutated in-place and returned.
  *
+ * @returns true if any migration was applied, false if settings were unchanged.
+ *
  * Extracted as a pure function (no Obsidian imports) so it can be unit-tested
  * without an Obsidian plugin instance.
  */
-export function migrateSettings(raw: Record<string, unknown>): Record<string, unknown> {
+export function migrateSettings(raw: Record<string, unknown>): boolean {
+	let migrated = false;
 	// Rename blockCursorMode -> customCursorMode  (pre-v1.0.x)
 	if (raw.blockCursorMode !== undefined && raw.customCursorMode === undefined) {
 		raw.customCursorMode = raw.blockCursorMode;
 		delete raw.blockCursorMode;
+		migrated = true;
 	}
 	// Rename blockCursorStyle -> customCursorStyle  (pre-v1.0.x)
 	if (raw.blockCursorStyle !== undefined && raw.customCursorStyle === undefined) {
 		raw.customCursorStyle = raw.blockCursorStyle;
 		delete raw.blockCursorStyle;
+		migrated = true;
 	}
 	// Rename thick-vertical cursor style -> bar  (v1.0.x)
 	if (raw.customCursorStyle === 'thick-vertical') {
 		raw.customCursorStyle = 'bar';
+		migrated = true;
 	}
 	// Rename lineDuration -> flashDuration  (v1.0.15)
 	if (raw.lineDuration !== undefined && raw.flashDuration === undefined) {
 		raw.flashDuration = raw.lineDuration;
 		delete raw.lineDuration;
+		migrated = true;
 	}
-	return raw;
+	return migrated;
 }
 
 
