@@ -105,8 +105,12 @@ class CustomCursorViewPlugin {
 					assocForCoords = sel.assoc || -1;
 				}
 
-				const coords = view.coordsAtPos(visualPos, assocForCoords as 1 | -1);
-				if (!coords) return null;
+				const rawCoords = view.coordsAtPos(visualPos, assocForCoords as 1 | -1);
+				if (!rawCoords) return null;
+				// Mutable copy so we can correct for inflated line boxes
+				let coordsTop = rawCoords.top;
+				let coordsBottom = rawCoords.bottom;
+				let coordsLeft = rawCoords.left;
 
 				// Convert viewport-relative → scrollDOM-relative coordinates
 				const scrollDOM = view.scrollDOM;
@@ -131,12 +135,6 @@ class CustomCursorViewPlugin {
 					if (assocForCoords === -1 && visualPos < doc.length) {
 						const coordsBefore = view.coordsAtPos(visualPos, -1);
 						const coordsAfter = view.coordsAtPos(visualPos, 1);
-						// Use 30% of line height as the soft-wrap detection threshold instead of
-						// a hardcoded 1px. A fixed 1px threshold is unreliable at non-100% display
-						// scaling (HiDPI) or with subpixel font rendering where same-line coords
-						// can legitimately differ by up to ~1px. 0.3 * lineHeight is large enough
-						// to absorb that drift and small enough to never trigger on same-visual-line
-						// positions regardless of font or zoom level.
 						const wrapThreshold = view.defaultLineHeight * 0.3;
 						if (coordsBefore && coordsAfter && Math.abs(coordsBefore.top - coordsAfter.top) > wrapThreshold) {
 							isEndOfVisualLine = true;
@@ -163,10 +161,27 @@ class CustomCursorViewPlugin {
 
 					const vpos1 = Math.min(doc.length, visualPos + char.length);
 					const rightCoords = vpos1 > visualPos ? view.coordsAtPos(vpos1, 1) : null;
-					if (rightCoords && rightCoords.left > coords.left && !isEndOfVisualLine) {
-						charWidth = rightCoords.left - coords.left;
+					if (rightCoords && rightCoords.left > coordsLeft && !isEndOfVisualLine) {
+						charWidth = rightCoords.left - coordsLeft;
 					} else {
 						charWidth = view.defaultCharacterWidth || 10;
+					}
+
+					// Fix for inflated line boxes caused by adjacent inline-block
+					// widgets (e.g. Steady Links hidden-syntax anchors with
+					// vertical-align: text-bottom).  When such a widget precedes
+					// the first visible link character, coordsAtPos() returns a
+					// taller rect (lower top, same bottom) than normal text
+					// positions.  If the next character on the same visual line
+					// has a smaller height with the same bottom edge, use its top
+					// instead so the overlay glyph aligns with surrounding text.
+					if (rightCoords && !isEndOfVisualLine) {
+						const curHeight = coordsBottom - coordsTop;
+						const nextHeight = rightCoords.bottom - rightCoords.top;
+						const sameBottom = Math.abs(coordsBottom - rightCoords.bottom) < 2;
+						if (sameBottom && nextHeight < curHeight - 1) {
+							coordsTop = rightCoords.top;
+						}
 					}
 
 					if (char !== ' ') {
@@ -202,10 +217,10 @@ class CustomCursorViewPlugin {
 				}
 
 				return {
-					top: coords.top - scrollRect.top + scrollDOM.scrollTop,
-					left: coords.left - scrollRect.left + scrollDOM.scrollLeft,
+					top: coordsTop - scrollRect.top + scrollDOM.scrollTop,
+					left: coordsLeft - scrollRect.left + scrollDOM.scrollLeft,
 					width: charWidth,  // 0 for bar/thinbar (width handled in write)
-					height: coords.bottom - coords.top,
+					height: coordsBottom - coordsTop,
 					color: cursorColor,
 					char: char,
 					contrastColor: contrastColor,
