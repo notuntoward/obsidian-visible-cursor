@@ -3,9 +3,11 @@ import { resolve } from 'node:path';
 
 export default defineConfig({
 	resolve: {
-		alias: {
-			obsidian: resolve(__dirname, './tests/mocks/obsidian.ts')
-		}
+		alias: [
+			{ find: 'obsidian', replacement: resolve(__dirname, './tests/mocks/obsidian.ts') },
+			// Force bare '../main' imports in tests to resolve to source .ts, not built main.js
+			{ find: /^\.\.\/main$/, replacement: resolve(__dirname, './main.ts') }
+		]
 	},
 	test: {
 		environment: 'node',

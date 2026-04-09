@@ -1,5 +1,28 @@
 export class App {}
 
+export class Plugin {
+	app: App;
+
+	constructor(app?: App) {
+		this.app = app ?? new App();
+	}
+
+	registerEditorExtension(): void {}
+	registerEvent(): void {}
+	addSettingTab(): void {}
+	registerDomEvent(): void {}
+	registerInterval(): void {}
+	register(): void {}
+	loadData(): Promise<Record<string, unknown>> {
+		return Promise.resolve({});
+	}
+	saveData(): Promise<void> {
+		return Promise.resolve();
+	}
+}
+
+export class MarkdownView {}
+
 export class PluginSettingTab {
 	app: App;
 	plugin: unknown;

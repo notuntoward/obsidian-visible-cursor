@@ -4,7 +4,11 @@ const bodyClasses = new Set<string>();
 
 if (typeof global !== 'undefined' && !global.document) {
 	(global as any).document = {
+		documentElement: {
+			style: {}
+		},
 		body: {
+			style: {},
 			classList: {
 				contains: (className: string) => bodyClasses.has(className),
 				add: (className: string) => bodyClasses.add(className),
@@ -49,6 +53,15 @@ if (typeof global !== 'undefined' && !global.window) {
 		requestAnimationFrame: (callback: (time: number) => void) => {
 			setTimeout(() => callback(performance.now()), 0);
 		}
+	};
+}
+
+if (typeof global !== 'undefined' && !(global as any).navigator) {
+	(global as any).navigator = {
+		userAgent: 'vitest',
+		vendor: 'vitest',
+		platform: 'Win32',
+		maxTouchPoints: 0
 	};
 }
 

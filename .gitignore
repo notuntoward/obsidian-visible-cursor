@@ -19,6 +19,9 @@ main.js
 .env
 stash_diff.txt
 
+# Playwright test output
+test-results/
+
 # User settings - stored per-vault by Obsidian
 data.json
 screenshots/README HOWTO.md
