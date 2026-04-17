@@ -1,11 +1,15 @@
-import { Plugin, MarkdownView } from 'obsidian';
-import { EditorView, ViewPlugin, ViewUpdate, keymap } from '@codemirror/view';
-import { EditorSelection, Transaction, Prec } from '@codemirror/state';
-import { VisibleCursorPluginSettings, DEFAULT_SETTINGS, VisibleCursorSettingTab } from './settings';
-import { migrateSettings } from './src/utils';
-import { ColorProvider } from './src/services/colorProvider';
-import { FlashScheduler, type FlashState } from './src/services/flashScheduler';
-import { FlashRenderer } from './src/services/flashRenderer';
+import { Plugin, MarkdownView } from "obsidian";
+import { EditorView, ViewPlugin, ViewUpdate, keymap } from "@codemirror/view";
+import { EditorSelection, Transaction, Prec } from "@codemirror/state";
+import {
+  VisibleCursorPluginSettings,
+  DEFAULT_SETTINGS,
+  VisibleCursorSettingTab,
+} from "./settings";
+import { migrateSettings } from "./src/utils";
+import { ColorProvider } from "./src/services/colorProvider";
+import { FlashScheduler, type FlashState } from "./src/services/flashScheduler";
+import { FlashRenderer } from "./src/services/flashRenderer";
 
 /**
  * Custom cursor rendering, mirroring the codemirror-emacs BlockCursorPlugin pattern.
@@ -19,1420 +23,1648 @@ import { FlashRenderer } from './src/services/flashRenderer';
  *   left = coords.left - scrollDOM.getBoundingClientRect().left + scrollDOM.scrollLeft
  */
 export class CustomCursorViewPlugin {
-	private cursorLayer: HTMLElement;
-	private cursorEl: HTMLElement | null = null;
-	private view: EditorView;
-	private plugin: VisibleCursorPlugin;
+  private cursorLayer: HTMLElement;
+  private cursorEl: HTMLElement | null = null;
+  private view: EditorView;
+  private plugin: VisibleCursorPlugin;
 
-	constructor(view: EditorView, plugin: VisibleCursorPlugin) {
-		this.view = view;
-		this.plugin = plugin;
+  constructor(view: EditorView, plugin: VisibleCursorPlugin) {
+    this.view = view;
+    this.plugin = plugin;
 
-		this.cursorLayer = document.createElement('div');
-		this.cursorLayer.className = 'visible-cursor-custom-layer';
-		this.cursorLayer.setAttribute('aria-hidden', 'true');
-		this.cursorLayer.style.cssText = 'position: absolute; top: 0; left: 0; pointer-events: none; overflow: visible;';
-		view.scrollDOM.appendChild(this.cursorLayer);
+    this.cursorLayer = document.createElement("div");
+    this.cursorLayer.className = "visible-cursor-custom-layer";
+    this.cursorLayer.setAttribute("aria-hidden", "true");
+    this.cursorLayer.style.cssText =
+      "position: absolute; top: 0; left: 0; pointer-events: none; overflow: visible;";
+    view.scrollDOM.appendChild(this.cursorLayer);
 
-		view.requestMeasure(this.buildMeasureReq());
-	}
+    view.requestMeasure(this.buildMeasureReq());
+  }
 
-	update(update: ViewUpdate) {
-		if (update.docChanged || update.selectionSet || update.geometryChanged || update.viewportChanged) {
-			update.view.requestMeasure(this.buildMeasureReq());
-		}
-	}
+  update(update: ViewUpdate) {
+    if (
+      update.docChanged ||
+      update.selectionSet ||
+      update.geometryChanged ||
+      update.viewportChanged
+    ) {
+      update.view.requestMeasure(this.buildMeasureReq());
+    }
+  }
 
-	destroy() {
-		this.cursorLayer.remove();
-		this.view = null as any;
-		this.plugin = null as any;
-	}
+  destroy() {
+    this.cursorLayer.remove();
+    this.view = null as any;
+    this.plugin = null as any;
+  }
 
-	/**
-	 * Builds the CM6 measure request for the custom cursor element.
-	 *
-	 * **Multi-cursor behaviour**: only `selection.main` (the primary cursor) is
-	 * rendered by this plugin. Secondary cursors in multi-cursor mode (Alt+Click,
-	 * Ctrl+D, etc.) receive CodeMirror's native cursor rendering. This is
-	 * intentional: the plugin enhances the primary cursor only and degrades
-	 * gracefully for secondary cursors.
-	 */
-	private buildMeasureReq() {
-		const plugin = this.plugin;
-		const cursorLayer = this.cursorLayer;
+  /**
+   * Builds the CM6 measure request for the custom cursor element.
+   *
+   * **Multi-cursor behaviour**: only `selection.main` (the primary cursor) is
+   * rendered by this plugin. Secondary cursors in multi-cursor mode (Alt+Click,
+   * Ctrl+D, etc.) receive CodeMirror's native cursor rendering. This is
+   * intentional: the plugin enhances the primary cursor only and degrades
+   * gracefully for secondary cursors.
+   */
+  private buildMeasureReq() {
+    const plugin = this.plugin;
+    const cursorLayer = this.cursorLayer;
 
-		const debugMeasure = (label: string, data: Record<string, unknown>) => {
-			if (!plugin.debugCursorDiagnostics) return;
-			console.log('[visible-cursor]', label, data);
-		};
+    const debugMeasure = (label: string, data: Record<string, unknown>) => {
+      if (!plugin.debugCursorDiagnostics) return;
+      console.log("[visible-cursor]", label, data);
+    };
 
-		const isZeroWidthOrCollapsedNode = (node: Node | null | undefined): boolean => {
-			if (!node) return false;
+    const isZeroWidthOrCollapsedNode = (
+      node: Node | null | undefined,
+    ): boolean => {
+      if (!node) return false;
 
-			let current: Node | null = node;
-			while (current) {
-				if (current.nodeType === Node.ELEMENT_NODE) {
-					const element = current as HTMLElement;
-					const ariaHidden = element.getAttribute('aria-hidden');
-					const style = typeof getComputedStyle === 'function' ? getComputedStyle(element) : null;
-					if (
-						ariaHidden === 'true' ||
-						style?.display === 'none' ||
-						style?.visibility === 'hidden' ||
-						style?.fontSize === '0px' ||
-						style?.width === '0px' ||
-						style?.maxWidth === '0px'
-					) {
-						return true;
-					}
-				}
-				current = current.parentNode;
-			}
+      let current: Node | null = node;
+      while (current) {
+        if (current.nodeType === Node.ELEMENT_NODE) {
+          const element = current as HTMLElement;
+          const ariaHidden = element.getAttribute("aria-hidden");
+          const style =
+            typeof getComputedStyle === "function"
+              ? getComputedStyle(element)
+              : null;
+          if (
+            ariaHidden === "true" ||
+            style?.display === "none" ||
+            style?.visibility === "hidden" ||
+            style?.fontSize === "0px" ||
+            style?.width === "0px" ||
+            style?.maxWidth === "0px"
+          ) {
+            return true;
+          }
+        }
+        current = current.parentNode;
+      }
 
-			return false;
-		};
+      return false;
+    };
 
-		const describeDomChain = (node: Node | null | undefined): Array<Record<string, unknown>> => {
-			const chain: Array<Record<string, unknown>> = [];
-			let current: Node | null | undefined = node;
-			let depth = 0;
-			while (current && depth < 6) {
-				if (current.nodeType === Node.TEXT_NODE) {
-					const textNode = current as Text;
-					chain.push({
-						depth,
-						type: 'text',
-						text: textNode.textContent?.slice(0, 30) ?? ''
-					});
-				} else if (current.nodeType === Node.ELEMENT_NODE) {
-					const element = current as HTMLElement;
-					const computed = typeof getComputedStyle === 'function' ? getComputedStyle(element) : null;
-					chain.push({
-						depth,
-						type: 'element',
-						tag: element.tagName,
-						className: element.className,
-						ariaHidden: element.getAttribute('aria-hidden'),
-						display: computed?.display,
-						visibility: computed?.visibility,
-						fontSize: computed?.fontSize,
-						width: computed?.width,
-						maxWidth: computed?.maxWidth
-					});
-				}
-				current = current.parentNode;
-				depth += 1;
-			}
-			return chain;
-		};
+    const describeDomChain = (
+      node: Node | null | undefined,
+    ): Array<Record<string, unknown>> => {
+      const chain: Array<Record<string, unknown>> = [];
+      let current: Node | null | undefined = node;
+      let depth = 0;
+      while (current && depth < 6) {
+        if (current.nodeType === Node.TEXT_NODE) {
+          const textNode = current as Text;
+          chain.push({
+            depth,
+            type: "text",
+            text: textNode.textContent?.slice(0, 30) ?? "",
+          });
+        } else if (current.nodeType === Node.ELEMENT_NODE) {
+          const element = current as HTMLElement;
+          const computed =
+            typeof getComputedStyle === "function"
+              ? getComputedStyle(element)
+              : null;
+          chain.push({
+            depth,
+            type: "element",
+            tag: element.tagName,
+            className: element.className,
+            ariaHidden: element.getAttribute("aria-hidden"),
+            display: computed?.display,
+            visibility: computed?.visibility,
+            fontSize: computed?.fontSize,
+            width: computed?.width,
+            maxWidth: computed?.maxWidth,
+          });
+        }
+        current = current.parentNode;
+        depth += 1;
+      }
+      return chain;
+    };
 
-		const findNextRenderableCell = (
-			view: EditorView,
-			fromPos: number
-		): { pos: number; assoc: 1 | -1 } | null => {
-			const doc = view.state.doc;
-			const line = doc.lineAt(fromPos);
-			const baseline = view.coordsAtPos(fromPos, -1) ?? view.coordsAtPos(fromPos, 1);
-			if (!baseline) return null;
+    const findNextRenderableCell = (
+      view: EditorView,
+      fromPos: number,
+    ): { pos: number; assoc: 1 | -1 } | null => {
+      const doc = view.state.doc;
+      const line = doc.lineAt(fromPos);
+      const baseline =
+        view.coordsAtPos(fromPos, -1) ?? view.coordsAtPos(fromPos, 1);
+      if (!baseline) return null;
 
-			for (let probe = fromPos + 1; probe <= line.to; probe++) {
-				const probeCoords = view.coordsAtPos(probe, -1);
-				if (!probeCoords) continue;
-				if (Math.abs(probeCoords.top - baseline.top) > view.defaultLineHeight * 0.3) break;
+      for (let probe = fromPos + 1; probe <= line.to; probe++) {
+        const probeCoords = view.coordsAtPos(probe, -1);
+        if (!probeCoords) continue;
+        if (
+          Math.abs(probeCoords.top - baseline.top) >
+          view.defaultLineHeight * 0.3
+        )
+          break;
 
-				const currentCoords = view.coordsAtPos(probe - 1, -1);
-				if (!currentCoords) continue;
+        const currentCoords = view.coordsAtPos(probe - 1, -1);
+        if (!currentCoords) continue;
 
-				const width = probeCoords.left - currentCoords.left;
-				if (width >= (view.defaultCharacterWidth || 10) * 0.5) {
-					return { pos: probe - 1, assoc: -1 };
-				}
-			}
+        const width = probeCoords.left - currentCoords.left;
+        if (width >= (view.defaultCharacterWidth || 10) * 0.5) {
+          return { pos: probe - 1, assoc: -1 };
+        }
+      }
 
-			return null;
-		};
+      return null;
+    };
 
-		return {
-			key: this,
-			read: (view: EditorView): { top: number; left: number; width: number; height: number; color: string; char: string; contrastColor: string; fontStyle: string; fontWeight: string; fontSize: string; fontFamily: string } | null => {
-				const mode = plugin.settings.customCursorMode;
-				if (mode === 'off') return null;
-				if (mode === 'flash' && !plugin.flashActive) return null;
-				if (!view.hasFocus) return null;
-				// During IME composition, fall back to standard Obsidian cursor behavior
-				if (plugin.isComposing) return null;
+    return {
+      key: this,
+      read: (
+        view: EditorView,
+      ): {
+        top: number;
+        left: number;
+        width: number;
+        height: number;
+        color: string;
+        char: string;
+        contrastColor: string;
+        fontStyle: string;
+        fontWeight: string;
+        fontSize: string;
+        fontFamily: string;
+      } | null => {
+        const mode = plugin.settings.customCursorMode;
+        if (mode === "off") return null;
+        if (mode === "flash" && !plugin.flashActive) return null;
+        if (!view.hasFocus) return null;
+        // During IME composition, fall back to standard Obsidian cursor behavior
+        if (plugin.isComposing) return null;
 
-				const sel = view.state.selection.main;
-				const pos = sel.head;
-				const style = plugin.settings.customCursorStyle;
+        const sel = view.state.selection.main;
+        const pos = sel.head;
+        const style = plugin.settings.customCursorStyle;
 
-				// For the block cursor, createBlockCursorNavFilter() tracks state via
-				// plugin._plugin.blockWrapState.  When set to {logicalPos, showPos, assoc}:
-				//   logicalPos = the actual cursor doc position
-				//   showPos    = the doc position to use for coordinate lookup
-				//   assoc      = the side to use for coordsAtPos
-				// Bar / thinbar use sel.assoc as-is (standard Obsidian behaviour).
-				let visualPos: number = pos;
-				let assocForCoords: number;
-				if (style === 'block') {
-					const wrapState = plugin.blockWrapState;
-					const hiddenBoundaryState = plugin.hiddenBoundaryRenderState;
-					if (wrapState && wrapState.logicalPos === pos) {
-						// Explicit wrapState override from createBlockCursorNavFilter():
-						// show block at the START of the continuation line (assoc=+1).
-						// This fires when a single-step ArrowRight arrived at the soft-wrap
-						// boundary (set by navCorrection updateListener, which runs synchronously
-						// before requestMeasure processes, so this branch always fires first
-						// for ArrowRight).
-						visualPos = wrapState.showPos;
-						assocForCoords = wrapState.assoc;
-					} else if (hiddenBoundaryState && hiddenBoundaryState.logicalPos === pos) {
-						visualPos = hiddenBoundaryState.showPos;
-						assocForCoords = hiddenBoundaryState.assoc;
-					} else {
-						// Default: sel.assoc.  End key, click, multi-char jumps, etc. all
-						// arrive here with whatever assoc CM6 assigned — respected as-is.
-						assocForCoords = sel.assoc || -1;
-					}
-				} else {
-					// Bar / thinbar: use sel.assoc directly (standard Obsidian behaviour)
-					assocForCoords = sel.assoc || -1;
-				}
+        // For the block cursor, createBlockCursorNavFilter() tracks state via
+        // plugin._plugin.blockWrapState.  When set to {logicalPos, showPos, assoc}:
+        //   logicalPos = the actual cursor doc position
+        //   showPos    = the doc position to use for coordinate lookup
+        //   assoc      = the side to use for coordsAtPos
+        // Bar / thinbar use sel.assoc as-is (standard Obsidian behaviour).
+        let visualPos: number = pos;
+        let assocForCoords: number;
+        if (style === "block") {
+          const wrapState = plugin.blockWrapState;
+          const hiddenBoundaryState = plugin.hiddenBoundaryRenderState;
+          if (wrapState && wrapState.logicalPos === pos) {
+            // Explicit wrapState override from createBlockCursorNavFilter():
+            // show block at the START of the continuation line (assoc=+1).
+            // This fires when a single-step ArrowRight arrived at the soft-wrap
+            // boundary (set by navCorrection updateListener, which runs synchronously
+            // before requestMeasure processes, so this branch always fires first
+            // for ArrowRight).
+            visualPos = wrapState.showPos;
+            assocForCoords = wrapState.assoc;
+          } else if (
+            hiddenBoundaryState &&
+            hiddenBoundaryState.logicalPos === pos
+          ) {
+            visualPos = hiddenBoundaryState.showPos;
+            assocForCoords = hiddenBoundaryState.assoc;
+          } else {
+            // Default: sel.assoc.  End key, click, multi-char jumps, etc. all
+            // arrive here with whatever assoc CM6 assigned — respected as-is.
+            assocForCoords = sel.assoc || -1;
+          }
+        } else {
+          // Bar / thinbar: use sel.assoc directly (standard Obsidian behaviour)
+          assocForCoords = sel.assoc || -1;
+        }
 
-				const rawCoords = view.coordsAtPos(visualPos, assocForCoords as 1 | -1);
-				if (!rawCoords) return null;
-				// Mutable copy so we can correct for inflated line boxes
-				let coordsTop = rawCoords.top;
-				let coordsBottom = rawCoords.bottom;
-				let coordsLeft = rawCoords.left;
+        const rawCoords = view.coordsAtPos(visualPos, assocForCoords as 1 | -1);
+        if (!rawCoords) return null;
+        // Mutable copy so we can correct for inflated line boxes
+        let coordsTop = rawCoords.top;
+        let coordsBottom = rawCoords.bottom;
+        let coordsLeft = rawCoords.left;
 
-				// Convert viewport-relative → scrollDOM-relative coordinates
-				const scrollDOM = view.scrollDOM;
-				const scrollRect = scrollDOM.getBoundingClientRect();
+        // Convert viewport-relative → scrollDOM-relative coordinates
+        const scrollDOM = view.scrollDOM;
+        const scrollRect = scrollDOM.getBoundingClientRect();
 
-				// For block cursor: measure the character width.
-				// coordsAtPos(visualPos, assocForCoords) gives the left edge of the char.
-				// coordsAtPos(visualPos+1, +1) gives the left edge of the NEXT char, which
-				// equals the right edge of the current char in LTR text.
-				let charWidth = 0;
-				let char = '';
-				let fontStyle = 'inherit';
-				let fontWeight = 'inherit';
-				let fontSize = 'inherit';
-				let fontFamily = 'inherit';
-				let originalColor = '';
+        // For block cursor: measure the character width.
+        // coordsAtPos(visualPos, assocForCoords) gives the left edge of the char.
+        // coordsAtPos(visualPos+1, +1) gives the left edge of the NEXT char, which
+        // equals the right edge of the current char in LTR text.
+        let charWidth = 0;
+        let char = "";
+        let fontStyle = "inherit";
+        let fontWeight = "inherit";
+        let fontSize = "inherit";
+        let fontFamily = "inherit";
+        let originalColor = "";
 
-				if (style === 'block') {
-					const doc = view.state.doc;
-					const domInfo = view.domAtPos(visualPos);
-					const domNode = domInfo.node ?? null;
-					
-					let isEndOfVisualLine = false;
-					if (assocForCoords === -1 && visualPos < doc.length) {
-						const coordsBefore = view.coordsAtPos(visualPos, -1);
-						const coordsAfter = view.coordsAtPos(visualPos, 1);
-						const wrapThreshold = view.defaultLineHeight * 0.3;
-						if (coordsBefore && coordsAfter && Math.abs(coordsBefore.top - coordsAfter.top) > wrapThreshold) {
-							isEndOfVisualLine = true;
-						}
-					}
-					
-					if (visualPos < doc.length) {
-						const line = view.state.doc.lineAt(visualPos);
-						if (visualPos === line.to || isEndOfVisualLine) {
-							char = ' ';
-						} else {
-							const text = line.text;
-							const offset = visualPos - line.from;
-							const codePoint = text.codePointAt(offset);
-							if (codePoint !== undefined) {
-								char = String.fromCodePoint(codePoint);
-							} else {
-								char = ' ';
-							}
-						}
-					} else {
-						char = ' ';
-					}
+        if (style === "block") {
+          const doc = view.state.doc;
+          const domInfo = view.domAtPos(visualPos);
+          const domNode = domInfo.node ?? null;
 
-					const vpos1 = Math.min(doc.length, visualPos + Math.max(char.length, 1));
-					const rightCoords = vpos1 > visualPos ? view.coordsAtPos(vpos1, 1) : null;
-					const positionStartsInCollapsedSyntax = isZeroWidthOrCollapsedNode(domNode);
-					const measuredWidthFromCoords = rightCoords ? rightCoords.left - coordsLeft : null;
-					if (!positionStartsInCollapsedSyntax && rightCoords && rightCoords.left > coordsLeft && !isEndOfVisualLine) {
-						charWidth = rightCoords.left - coordsLeft;
-					} else {
-						charWidth = view.defaultCharacterWidth || 10;
-					}
+          let isEndOfVisualLine = false;
+          if (assocForCoords === -1 && visualPos < doc.length) {
+            const coordsBefore = view.coordsAtPos(visualPos, -1);
+            const coordsAfter = view.coordsAtPos(visualPos, 1);
+            const wrapThreshold = view.defaultLineHeight * 0.3;
+            if (
+              coordsBefore &&
+              coordsAfter &&
+              Math.abs(coordsBefore.top - coordsAfter.top) > wrapThreshold
+            ) {
+              isEndOfVisualLine = true;
+            }
+          }
 
-				// !! CRITICAL: min-width fallback for hidden link syntax !!
-					//
-					// When the cursor lands on hidden wikilink syntax (e.g. `[` of `[[`)
-					// that Steady Links has collapsed, the measured width is ~1px.
-					// This fallback:
-					//   1. Probes forward to find the actual visible character's width
-					//   2. Replaces char with ' ' to prevent garbled rendering
-					//
-					// If Steady Links is working correctly, the cursor never lands on
-					// hidden syntax and this fallback never fires.  It exists as a safety
-					// net.  Do NOT remove it — see AGENTS.md.
-					const minimumBlockWidth = (view.defaultCharacterWidth || 10) * 0.5;
-					if (charWidth < minimumBlockWidth) {
-						// The measured width was too small to be a real visible character.
-						// This typically happens when the cursor lands on hidden wikilink
-						// syntax (e.g. `[` or `]`) that Steady Links has collapsed to near
-						// zero width.  Probe forward on the same visual line to find the
-						// first character cell with a real renderable width, and use that
-						// width so the block cursor matches the visible alias character.
-						const visibleCell = findNextRenderableCell(view, visualPos);
-						let probeWidth = 0;
-						if (visibleCell) {
-							const cellLeft = view.coordsAtPos(visibleCell.pos, -1);
-							const cellRight = view.coordsAtPos(visibleCell.pos + 1, -1);
-							if (cellLeft && cellRight) {
-								probeWidth = cellRight.left - cellLeft.left;
-							}
-						}
-						if (probeWidth >= minimumBlockWidth) {
-							charWidth = probeWidth;
-						} else {
-							charWidth = view.defaultCharacterWidth || 10;
-						}
-						debugMeasure('cursor-measure:min-width-fallback', {
-							selectionHead: pos,
-							selectionAssoc: sel.assoc,
-							visualPos,
-							assocForCoords,
-							char,
-							measuredWidth: charWidth,
-							probeWidth,
-							probePos: visibleCell?.pos ?? null,
-							minimumBlockWidth,
-							defaultCharacterWidth: view.defaultCharacterWidth,
-							blockWrapState: plugin.blockWrapState
-						});
-						// Rendering the hidden source character (e.g. `[`) inside the
-						// block cursor produces a garbled glyph overlaid on the actual
-						// visible alias text.  Show a space instead so the block cursor
-						// is a clean colored rectangle and the underlying text shows through.
-						char = ' ';
-					}
+          if (visualPos < doc.length) {
+            const line = view.state.doc.lineAt(visualPos);
+            if (visualPos === line.to || isEndOfVisualLine) {
+              char = " ";
+            } else {
+              const text = line.text;
+              const offset = visualPos - line.from;
+              const codePoint = text.codePointAt(offset);
+              if (codePoint !== undefined) {
+                char = String.fromCodePoint(codePoint);
+              } else {
+                char = " ";
+              }
+            }
+          } else {
+            char = " ";
+          }
 
-					const shouldLogMeasurement =
-						positionStartsInCollapsedSyntax ||
-						(isEndOfVisualLine === false && rightCoords !== null && measuredWidthFromCoords !== null && measuredWidthFromCoords <= 1) ||
-						(domInfo.offset ?? 0) === 0 ||
-						(plugin.hiddenBoundaryRenderState?.logicalPos === pos);
+          const vpos1 = Math.min(
+            doc.length,
+            visualPos + Math.max(char.length, 1),
+          );
+          const rightCoords =
+            vpos1 > visualPos ? view.coordsAtPos(vpos1, 1) : null;
+          const positionStartsInCollapsedSyntax =
+            isZeroWidthOrCollapsedNode(domNode);
+          const measuredWidthFromCoords = rightCoords
+            ? rightCoords.left - coordsLeft
+            : null;
+          if (
+            !positionStartsInCollapsedSyntax &&
+            rightCoords &&
+            rightCoords.left > coordsLeft &&
+            !isEndOfVisualLine
+          ) {
+            charWidth = rightCoords.left - coordsLeft;
+          } else {
+            charWidth = view.defaultCharacterWidth || 10;
+          }
 
-					if (shouldLogMeasurement) {
-						debugMeasure('cursor-measure', {
-							selectionHead: pos,
-							selectionAssoc: sel.assoc,
-							visualPos,
-							assocForCoords,
-							blockWrapState: plugin.blockWrapState,
-							char,
-							isEndOfVisualLine,
-							rawCoords,
-							rightCoords,
-							measuredWidthFromCoords,
-							appliedWidth: charWidth,
-							defaultCharacterWidth: view.defaultCharacterWidth,
-							domOffset: domInfo.offset,
-							positionStartsInCollapsedSyntax,
-							domChain: describeDomChain(domNode)
-						});
-					}
+          // !! CRITICAL: min-width fallback for hidden link syntax !!
+          //
+          // When the cursor lands on hidden wikilink syntax (e.g. `[` of `[[`)
+          // that Steady Links has collapsed, the measured width is ~1px.
+          // This fallback:
+          //   1. Probes forward to find the actual visible character's width
+          //   2. Replaces char with ' ' to prevent garbled rendering
+          //
+          // If Steady Links is working correctly, the cursor never lands on
+          // hidden syntax and this fallback never fires.  It exists as a safety
+          // net.  Do NOT remove it — see AGENTS.md.
+          const minimumBlockWidth = (view.defaultCharacterWidth || 10) * 0.5;
+          if (charWidth < minimumBlockWidth) {
+            // The measured width was too small to be a real visible character.
+            // This typically happens when the cursor lands on hidden wikilink
+            // syntax (e.g. `[` or `]`) that Steady Links has collapsed to near
+            // zero width.  Probe forward on the same visual line to find the
+            // first character cell with a real renderable width, and use that
+            // width so the block cursor matches the visible alias character.
+            const visibleCell = findNextRenderableCell(view, visualPos);
+            let probeWidth = 0;
+            if (visibleCell) {
+              const cellLeft = view.coordsAtPos(visibleCell.pos, -1);
+              const cellRight = view.coordsAtPos(visibleCell.pos + 1, -1);
+              if (cellLeft && cellRight) {
+                probeWidth = cellRight.left - cellLeft.left;
+              }
+            }
+            if (probeWidth >= minimumBlockWidth) {
+              charWidth = probeWidth;
+            } else {
+              charWidth = view.defaultCharacterWidth || 10;
+            }
+            debugMeasure("cursor-measure:min-width-fallback", {
+              selectionHead: pos,
+              selectionAssoc: sel.assoc,
+              visualPos,
+              assocForCoords,
+              char,
+              measuredWidth: charWidth,
+              probeWidth,
+              probePos: visibleCell?.pos ?? null,
+              minimumBlockWidth,
+              defaultCharacterWidth: view.defaultCharacterWidth,
+              blockWrapState: plugin.blockWrapState,
+            });
+            // Rendering the hidden source character (e.g. `[`) inside the
+            // block cursor produces a garbled glyph overlaid on the actual
+            // visible alias text.  Show a space instead so the block cursor
+            // is a clean colored rectangle and the underlying text shows through.
+            char = " ";
+          }
 
-					// Fix for inflated line boxes caused by adjacent inline-block
-					// widgets (e.g. Steady Links hidden-syntax anchors with
-					// vertical-align: text-bottom).  When such a widget precedes
-					// the first visible link character, coordsAtPos() returns a
-					// taller rect (lower top, same bottom) than normal text
-					// positions.  If the next character on the same visual line
-					// has a smaller height with the same bottom edge, use its top
-					// instead so the overlay glyph aligns with surrounding text.
-					if (rightCoords && !isEndOfVisualLine) {
-						const curHeight = coordsBottom - coordsTop;
-						const nextHeight = rightCoords.bottom - rightCoords.top;
-						const sameBottom = Math.abs(coordsBottom - rightCoords.bottom) < 2;
-						if (sameBottom && nextHeight < curHeight - 1) {
-							coordsTop = rightCoords.top;
-						}
-					}
+          const shouldLogMeasurement =
+            positionStartsInCollapsedSyntax ||
+            (isEndOfVisualLine === false &&
+              rightCoords !== null &&
+              measuredWidthFromCoords !== null &&
+              measuredWidthFromCoords <= 1) ||
+            (domInfo.offset ?? 0) === 0 ||
+            plugin.hiddenBoundaryRenderState?.logicalPos === pos;
 
-					if (char !== ' ') {
-						// Use view.domAtPos() to get the exact DOM node CM6 rendered for this
-						// character position. This avoids document.elementFromPoint() which:
-						//   • forces a reflow (expensive inside the CM6 measure loop)
-						//   • returns null when the element is obscured by overlapping panels
-						//   • fails for out-of-viewport positions
-						// domAtPos() works directly from CM6's internal DOM map, independent
-						// of scroll position, z-order, or pointer-events.
-						let el: Element | null = null;
-						if (domInfo.node) {
-							el = domInfo.node.nodeType === Node.TEXT_NODE
-								? (domInfo.node as Text).parentElement
-								: domInfo.node as Element;
-						}
-						if (el) {
-							const computed = getComputedStyle(el);
-							fontStyle = computed.fontStyle;
-							fontWeight = computed.fontWeight;
-							fontSize = computed.fontSize;
-							fontFamily = computed.fontFamily;
-							originalColor = computed.color;
-						}
-					}
-				}
+          if (shouldLogMeasurement) {
+            debugMeasure("cursor-measure", {
+              selectionHead: pos,
+              selectionAssoc: sel.assoc,
+              visualPos,
+              assocForCoords,
+              blockWrapState: plugin.blockWrapState,
+              char,
+              isEndOfVisualLine,
+              rawCoords,
+              rightCoords,
+              measuredWidthFromCoords,
+              appliedWidth: charWidth,
+              defaultCharacterWidth: view.defaultCharacterWidth,
+              domOffset: domInfo.offset,
+              positionStartsInCollapsedSyntax,
+              domChain: describeDomChain(domNode),
+            });
+          }
 
-				const cursorColor = plugin.colorProvider.getColor(plugin.settings).color;
-				let contrastColor = '';
-				if (style === 'block') {
-					contrastColor = plugin.colorProvider.getContrastColor(cursorColor, originalColor);
-				}
+          // Fix for misaligned line boxes caused by adjacent inline-block
+          // widgets (e.g. Steady Links hidden-syntax anchors).  The
+          // anchor widget's vertical-align shifts the effective baseline
+          // of the line box, so coordsAtPos() at the first or last
+          // visible link character can return a rect whose top differs
+          // from that of plain text on the same visual line — shifted
+          // either up (text-bottom anchor) or down (-0.2em anchor).
+          // In both cases the bottom edge stays flush with surrounding
+          // text.  When the next character shares the same bottom but
+          // has a top that differs by more than 1px, use the next
+          // character's top so the overlay glyph aligns with the text.
+          if (rightCoords && !isEndOfVisualLine) {
+            const sameBottom = Math.abs(coordsBottom - rightCoords.bottom) < 2;
+            if (sameBottom && Math.abs(coordsTop - rightCoords.top) > 1) {
+              coordsTop = rightCoords.top;
+            }
+          }
 
-				return {
-					top: coordsTop - scrollRect.top + scrollDOM.scrollTop,
-					left: coordsLeft - scrollRect.left + scrollDOM.scrollLeft,
-					width: charWidth,  // 0 for bar/thinbar (width handled in write)
-					height: coordsBottom - coordsTop,
-					color: cursorColor,
-					char: char,
-					contrastColor: contrastColor,
-					fontStyle,
-					fontWeight,
-					fontSize,
-					fontFamily
-				};
-			},
-			write: (measure: { top: number; left: number; width: number; height: number; color: string; char: string; contrastColor: string; fontStyle: string; fontWeight: string; fontSize: string; fontFamily: string } | null) => {
-				if (!measure) {
-					cursorLayer.style.display = 'none';
-					return;
-				}
-				cursorLayer.style.display = '';
+          if (char !== " ") {
+            // Use view.domAtPos() to get the exact DOM node CM6 rendered for this
+            // character position. This avoids document.elementFromPoint() which:
+            //   • forces a reflow (expensive inside the CM6 measure loop)
+            //   • returns null when the element is obscured by overlapping panels
+            //   • fails for out-of-viewport positions
+            // domAtPos() works directly from CM6's internal DOM map, independent
+            // of scroll position, z-order, or pointer-events.
+            let el: Element | null = null;
+            if (domInfo.node) {
+              el =
+                domInfo.node.nodeType === Node.TEXT_NODE
+                  ? (domInfo.node as Text).parentElement
+                  : (domInfo.node as Element);
+            }
+            if (el) {
+              const computed = getComputedStyle(el);
+              fontStyle = computed.fontStyle;
+              fontWeight = computed.fontWeight;
+              fontSize = computed.fontSize;
+              fontFamily = computed.fontFamily;
+              originalColor = computed.color;
+            }
+          }
+        }
 
-				if (!this.cursorEl) {
-					this.cursorEl = document.createElement('div');
-					this.cursorEl.className = 'visible-cursor-element';
-					cursorLayer.appendChild(this.cursorEl);
-				}
+        const cursorColor = plugin.colorProvider.getColor(
+          plugin.settings,
+        ).color;
+        let contrastColor = "";
+        if (style === "block") {
+          contrastColor = plugin.colorProvider.getContrastColor(
+            cursorColor,
+            originalColor,
+          );
+        }
 
-				const el = this.cursorEl;
-				el.style.position = 'absolute';
-				el.style.top = measure.top + 'px';
-				el.style.left = measure.left + 'px';
-				el.style.height = measure.height + 'px';
+        return {
+          top: coordsTop - scrollRect.top + scrollDOM.scrollTop,
+          left: coordsLeft - scrollRect.left + scrollDOM.scrollLeft,
+          width: charWidth, // 0 for bar/thinbar (width handled in write)
+          height: coordsBottom - coordsTop,
+          color: cursorColor,
+          char: char,
+          contrastColor: contrastColor,
+          fontStyle,
+          fontWeight,
+          fontSize,
+          fontFamily,
+        };
+      },
+      write: (
+        measure: {
+          top: number;
+          left: number;
+          width: number;
+          height: number;
+          color: string;
+          char: string;
+          contrastColor: string;
+          fontStyle: string;
+          fontWeight: string;
+          fontSize: string;
+          fontFamily: string;
+        } | null,
+      ) => {
+        if (!measure) {
+          cursorLayer.style.display = "none";
+          return;
+        }
+        cursorLayer.style.display = "";
 
-				const style = plugin.settings.customCursorStyle;
-				if (style === 'bar') {
-					el.style.width = '3px';
-					el.style.marginLeft = '-1px';
-					el.style.backgroundColor = measure.color;
-					el.style.border = '';
-					el.style.opacity = '';
-					el.style.mixBlendMode = '';
-					el.textContent = '';
-				} else if (style === 'thinbar') {
-					el.style.width = '2px';
-					el.style.backgroundColor = measure.color;
-					el.style.border = '';
-					el.style.opacity = '';
-					el.style.marginLeft = '';
-					el.style.mixBlendMode = '';
-					el.textContent = '';
-				} else {
-					// block: covers the character cell using the measured character width.
-					el.style.width = measure.width > 0 ? measure.width + 'px' : '0.6em';
-					el.style.backgroundColor = measure.color;
-					el.style.opacity = '1';
-					el.style.mixBlendMode = 'normal';
-					el.style.border = '';
-					el.style.marginLeft = '';
-					
-					// Render the character inside the cursor for perfect contrast
-					el.textContent = measure.char;
-					el.style.color = measure.contrastColor;
-					el.style.display = 'flex';
-					el.style.alignItems = 'center';
-					el.style.justifyContent = 'flex-start';
-					el.style.overflow = 'hidden';
-					el.style.whiteSpace = 'pre';
-					// Match the font of the editor and the specific character
-					el.style.fontStyle = measure.fontStyle;
-					el.style.fontWeight = measure.fontWeight;
-					el.style.fontSize = measure.fontSize;
-					el.style.fontFamily = measure.fontFamily;
-					el.style.lineHeight = measure.height + 'px';
-					el.style.setProperty('tab-size', 'inherit');
-				}
-			}
-		};
-	}
+        if (!this.cursorEl) {
+          this.cursorEl = document.createElement("div");
+          this.cursorEl.className = "visible-cursor-element";
+          cursorLayer.appendChild(this.cursorEl);
+        }
+
+        const el = this.cursorEl;
+        el.style.position = "absolute";
+        el.style.top = measure.top + "px";
+        el.style.left = measure.left + "px";
+        el.style.height = measure.height + "px";
+
+        const style = plugin.settings.customCursorStyle;
+        if (style === "bar") {
+          el.style.width = "3px";
+          el.style.marginLeft = "-1px";
+          el.style.backgroundColor = measure.color;
+          el.style.border = "";
+          el.style.opacity = "";
+          el.style.mixBlendMode = "";
+          el.textContent = "";
+        } else if (style === "thinbar") {
+          el.style.width = "2px";
+          el.style.backgroundColor = measure.color;
+          el.style.border = "";
+          el.style.opacity = "";
+          el.style.marginLeft = "";
+          el.style.mixBlendMode = "";
+          el.textContent = "";
+        } else {
+          // block: covers the character cell using the measured character width.
+          el.style.width = measure.width > 0 ? measure.width + "px" : "0.6em";
+          el.style.backgroundColor = measure.color;
+          el.style.opacity = "1";
+          el.style.mixBlendMode = "normal";
+          el.style.border = "";
+          el.style.marginLeft = "";
+
+          // Render the character inside the cursor for perfect contrast
+          el.textContent = measure.char;
+          el.style.color = measure.contrastColor;
+          el.style.display = "flex";
+          el.style.alignItems = "center";
+          el.style.justifyContent = "flex-start";
+          el.style.overflow = "hidden";
+          el.style.whiteSpace = "pre";
+          // Match the font of the editor and the specific character
+          el.style.fontStyle = measure.fontStyle;
+          el.style.fontWeight = measure.fontWeight;
+          el.style.fontSize = measure.fontSize;
+          el.style.fontFamily = measure.fontFamily;
+          el.style.lineHeight = measure.height + "px";
+          el.style.setProperty("tab-size", "inherit");
+        }
+      },
+    };
+  }
 }
 
 export interface BlockWrapState {
-	logicalPos: number;
-	showPos: number;
-	assoc: 1 | -1;
+  logicalPos: number;
+  showPos: number;
+  assoc: 1 | -1;
 }
 
 interface HiddenBoundaryRenderState {
-	logicalPos: number;
-	showPos: number;
-	assoc: 1 | -1;
+  logicalPos: number;
+  showPos: number;
+  assoc: 1 | -1;
 }
 
 export default class VisibleCursorPlugin extends Plugin {
-	settings: VisibleCursorPluginSettings;
-	private styleElement: HTMLStyleElement | null = null;
-	lastKey: string = '';
-	debugCursorDiagnostics: boolean = true;
-
-	private lastViewChange: number = 0;
-	private flashTimeout: NodeJS.Timeout | null = null;
-	private resetFlashTimeout: NodeJS.Timeout | null = null;
-	private scrollDebounceTimer: NodeJS.Timeout | null = null;
-	private lastScrollPosition: number = 0;
-	flashActive: boolean = false;    // public so CustomCursorViewPlugin can read it
-	private clickFenceActive: boolean = false;
-	private pendingFlashTrigger: string | null = null;
-	private scrollFlashSuppressedUntil: number = 0;
-	private boundStartFence: () => void;
-	private boundEndFenceSoon: () => void;
-	private boundClickEndFence: () => void;
-	private boundKeydown: (e: KeyboardEvent) => void;
-	isComposing: boolean = false;
-	private boundCompositionStart: () => void;
-	private boundCompositionEnd: () => void;
-
-	// Shared state for block cursor wrap navigation
-	blockWrapState: BlockWrapState | null = null;
-	hiddenBoundaryRenderState: HiddenBoundaryRenderState | null = null;
-
-	// Services
-	colorProvider: ColorProvider;    // public so CustomCursorViewPlugin can read it
-	private flashScheduler: FlashScheduler;
-	private flashRenderer: FlashRenderer;
-
-	async onload() {
-		await this.loadSettings();
-
-		// Initialize services
-		this.colorProvider = new ColorProvider();
-		this.flashScheduler = new FlashScheduler();
-		this.flashRenderer = new FlashRenderer();
-
-		this.addSettingTab(new VisibleCursorSettingTab(this.app, this));
-
-		const pluginRef = this;
-
-		// Register editor extensions:
-		// 1. CustomCursorViewPlugin — codemirror-emacs BlockCursorPlugin pattern
-		// 2. domEventHandlers — scroll-triggered flashes
-		// 3. blockCursorNavFilter — GNU Emacs soft-wrap boundary navigation for block cursor
-		this.registerEditorExtension([
-			ViewPlugin.define((view) => new CustomCursorViewPlugin(view, pluginRef)),
-			this.createDOMEventHandlers(),
-			...this.createBlockCursorNavFilter()
-		]);
-
-		requestAnimationFrame(() => requestAnimationFrame(() => this.updateCursorStyles()));
-
-		this.registerEvent(
-			this.app.workspace.on('active-leaf-change', () => {
-				requestAnimationFrame(() => this.updateCursorStyles());
-				if (this.settings.flashOnWindowChanges) {
-					requestAnimationFrame(() => requestAnimationFrame(() => this.scheduleFlash('view-change', false)));
-				}
-			})
-		);
-
-		this.registerEvent(
-			this.app.workspace.on('layout-change', () => {
-				if (this.settings.flashOnWindowChanges) {
-					requestAnimationFrame(() => requestAnimationFrame(() => this.scheduleFlash('layout-change', false)));
-				}
-			})
-		);
-
-		this.registerEvent(
-			this.app.workspace.on('css-change', () => {
-				this.app.workspace.updateOptions();
-				this.colorProvider.clearCache();
-				requestAnimationFrame(() => this.updateCursorStyles());
-			})
-		);
-
-		// Global click fence: raised in capture-phase pointerdown
-		this.boundStartFence = () => { this.clickFenceActive = true; };
-		this.boundEndFenceSoon = () => { setTimeout(() => { this.clickFenceActive = false; }, 400); };
-		this.boundClickEndFence = () => { this.boundEndFenceSoon(); };
-		this.boundKeydown = (e: KeyboardEvent) => { this.lastKey = e.key; };
-		this.boundCompositionStart = () => {
-			this.isComposing = true;
-			document.body.classList.add('visible-cursor-is-composing');
-			this.refreshDecorations();
-		};
-		this.boundCompositionEnd = () => {
-			this.isComposing = false;
-			document.body.classList.remove('visible-cursor-is-composing');
-			this.refreshDecorations();
-		};
-		window.addEventListener('pointerdown', this.boundStartFence, { capture: true });
-		window.addEventListener('pointerup', this.boundEndFenceSoon, { capture: true });
-		window.addEventListener('pointercancel', this.boundEndFenceSoon, { capture: true });
-		window.addEventListener('click', this.boundClickEndFence, { capture: true });
-		window.addEventListener('keydown', this.boundKeydown, { capture: true });
-		window.addEventListener('compositionstart', this.boundCompositionStart, { capture: true });
-		window.addEventListener('compositionend', this.boundCompositionEnd, { capture: true });
-	}
-
-	createDOMEventHandlers() {
-		const plugin = this;
-
-		return EditorView.domEventHandlers({
-			scroll: (event: Event, view: EditorView) => {
-				if (!plugin.settings.flashOnWindowScrolls) return false;
-
-				const currentScrollPos = view.scrollDOM.scrollTop;
-				const scrollDelta = Math.abs(currentScrollPos - plugin.lastScrollPosition);
-				plugin.lastScrollPosition = currentScrollPos;
-
-				const now = Date.now();
-				if (plugin.flashActive || now < plugin.scrollFlashSuppressedUntil) {
-					plugin.scrollFlashSuppressedUntil = now + 300;
-					if (plugin.scrollDebounceTimer) {
-						clearTimeout(plugin.scrollDebounceTimer);
-						plugin.scrollDebounceTimer = null;
-					}
-					return false;
-				}
-
-				if (plugin.scrollDebounceTimer) {
-					clearTimeout(plugin.scrollDebounceTimer);
-				}
-
-				const debounceTime = plugin.flashScheduler.getScrollDebounceTime(scrollDelta);
-				plugin.scrollDebounceTimer = setTimeout(() => {
-					plugin.scheduleFlash('scroll', false);
-					plugin.scrollDebounceTimer = null;
-				}, debounceTime);
-
-				return false;
-			}
-		});
-	}
-
-	/**
-	 * GNU Emacs block cursor navigation at soft-wrap boundaries.
-	 *
-	 * Diagnostic data from testing (coordsAtPos) at soft-wrap boundary P
-	 * (the first character of the continuation line in Obsidian/CM6):
-	 *   coordsAtPos(P, -1).top = visual line 1 top  ← END of wrapped line
-	 *   coordsAtPos(P, +1).top = visual line 2 top  ← START of continuation line
-	 *
-	 * The `buildMeasureReq` read function already handles the visual positioning:
-	 * at a soft-wrap boundary with sel.assoc ≤ 0 (CM6's default after a rightward
-	 * move), it overrides to assoc=+1 so the block appears on line 2.
-	 *
-	 * This filter handles:
-	 *   • ArrowRight: When the cursor arrives at P via a rightward keyboard move,
-	 *     block shows on line 2 immediately. Pressing → AGAIN should advance to P+1
-	 *     (second char of continuation line), not stay at P.
-	 *   • ArrowDown: When the block cursor is visually shown at the start of a
-	 *     wrapped continuation line (assoc=1 at soft-wrap boundary), Down should
-	 *     use that visual x-position as the anchor for vertical movement, rather
-	 *     than the underlying logical position.
-	 *
-	 * Bar / thinbar cursors are completely unaffected.
-	 */
-	createBlockCursorNavFilter() {
-		const plugin = this;
-
-		const debugNav = (label: string, data: Record<string, unknown>) => {
-			if (!plugin.debugCursorDiagnostics) return;
-			console.log('[visible-cursor]', label, data);
-		};
-
-		const clearHiddenBoundaryRenderState = () => {
-			plugin.hiddenBoundaryRenderState = null;
-		};
-
-		// ─────────────────────────────────────────────────────────────────────
-		// Implicit state machine for block cursor navigation at soft-wrap boundaries
-		//
-		// STATE VARIABLES
-		// ───────────────
-		//   plugin.blockWrapState  (BlockWrapState | null)  — class field on VisibleCursorPlugin
-		//     Non-null when the cursor is visually sitting at the START of a soft-wrap
-		//     continuation line.  The renderer reads this to override the coordinate
-		//     lookup (assoc=+1 instead of CM6's default assoc=-1).
-		//     Shape: { logicalPos, showPos, assoc }
-		//
-		//   pendingDownFromWrapPos  (number | null)  — closure variable in this function
-		//     Set to the wrap-boundary position whenever we park the cursor there via
-		//     a keymap handler (handleRight, handleUp).  Consumed by handleDown so that
-		//     ArrowDown uses the visual x-position of the wrap boundary as its column
-		//     anchor rather than the logical-line column.
-		//     NOTE: this is a timing bridge — blockWrapState may be cleared by
-		//     navCorrection between keystrokes, but pendingDownFromWrapPos persists
-		//     one more cycle so handleDown still knows it came from a wrap boundary.
-		//
-		// STATES
-		// ──────
-		//   IDLE
-		//     blockWrapState        = null
-		//     pendingDownFromWrapPos = null
-		//
-		//   AT_WRAP_BOUNDARY
-		//     blockWrapState        = { logicalPos: P, showPos: P, assoc: 1 }
-		//     pendingDownFromWrapPos = P
-		//     (cursor is visually at the start of continuation line, logical pos = P)
-		//
-		// TRANSITIONS
-		// ───────────
-		//   Any state → AT_WRAP_BOUNDARY
-		//     Triggered by: handleRight   (ArrowRight arrives at wrap boundary)
-		//                   handleUp      (ArrowUp lands on a wrap-start)
-		//                   navCorrection (CM6-native +1/-1 char move; vertical move > 1 line up;
-		//                                 vertical move 1 line down from wrap; vertical same-line)
-		//
-		//   AT_WRAP_BOUNDARY → IDLE
-		//     Triggered by: handleRight   (second ArrowRight — advances past boundary)
-		//                   handleLeft    (any ArrowLeft — leaves wrap context)
-		//                   handleDown    (ArrowDown executed, no new wrap boundary at target)
-		//                   handleUp      (ArrowUp executed, no new wrap boundary at target)
-		//                   navCorrection (doc changed, selection non-empty, or cursor moved away)
-		//
-		//   AT_WRAP_BOUNDARY → AT_WRAP_BOUNDARY  (re-arm at new position)
-		//     Triggered by: handleDown    (ArrowDown lands at another wrap-start)
-		//                   handleUp      (ArrowUp lands at another wrap-start)
-		//                   navCorrection (corrective dispatch after a wrap-boundary landing)
-		//
-		// READERS
-		// ───────
-		//   buildMeasureReq.read()  — reads blockWrapState to choose visualPos/assocForCoords
-		//   handleDown()            — reads pendingDownFromWrapPos OR blockWrapState to decide
-		//                            whether to compute wrap-aware vertical movement
-		//
-		// WRITER LOCATIONS
-		// ────────────────
-		//   handleRight()     sets AT_WRAP or clears (IDLE)            lines ~570–583
-		//   handleLeft()      always clears both (IDLE)                 lines ~591–593
-		//   handleDown()      sets AT_WRAP or clears; consumes pending  lines ~622–637
-		//   handleUp()        sets AT_WRAP or clears; may set pending   lines ~654–678
-		//   navCorrection     clears on guard conditions                lines ~723–733
-		//                     sets AT_WRAP on +1 char forward           lines ~747–763
-		//                     sets AT_WRAP on -1 char backward          lines ~767–774
-		//                     sets AT_WRAP on >1-line-up landing        lines ~833–841
-		//                     sets AT_WRAP on 1-line-down from wrap     lines ~848–857
-		//                     sets AT_WRAP on up from wrap              lines ~864–878
-		//                     sets AT_WRAP on same-visual-line glitch   lines ~884–896
-		// ─────────────────────────────────────────────────────────────────────
-
-		let pendingDownFromWrapPos: number | null = null;
-
-		const isSoftWrap = (view: EditorView, pos: number): boolean => {
-			const line = view.state.doc.lineAt(pos);
-
-			if (pos === line.to) return false;
-
-			const coordsBefore = view.coordsAtPos(pos, -1);
-			const coordsAfter = view.coordsAtPos(pos, 1);
-
-			if (!coordsBefore || !coordsAfter) return false;
-
-			// Use 30% of line height as the threshold instead of a hardcoded 1px value.
-			// A fixed 1px threshold fails at non-100% display scaling and with subpixel
-			// font rendering where same-line positions can legitimately differ by ~1px.
-			// 0.3 * defaultLineHeight is immune to both while remaining far below any
-			// real line-change delta (which is always ≥ 1 line height).
-			const threshold = view.defaultLineHeight * 0.3;
-			return Math.abs(coordsBefore.top - coordsAfter.top) > threshold;
-		};
-
-		const findStartOfNextVisualLineFromWrap = (
-			view: EditorView,
-			pos: number
-		): { pos: number; assoc: 1 | -1 } | null => {
-			const doc = view.state.doc;
-			const line = doc.lineAt(pos);
-
-			const current = view.coordsAtPos(pos, 1);
-			if (!current) return null;
-
-			// First: look for the first position later in the SAME logical line
-			// whose visual top is below the current wrapped segment.
-			for (let p = pos + 1; p <= line.to; p++) {
-				const c = view.coordsAtPos(p, 1);
-				if (!c) continue;
-
-				if (c.top > current.top + 1) {
-					return { pos: p, assoc: 1 };
-				}
-			}
-
-			// If there is no lower visual segment in this logical line, fall back to
-			// the start of the next physical line.
-			if (line.number < doc.lines) {
-				const nextLine = doc.line(line.number + 1);
-				return { pos: nextLine.from, assoc: 1 };
-			}
-
-			return null;
-		};
-
-		const findStartOfPreviousVisualLineFromWrap = (
-			view: EditorView,
-			pos: number
-		): { pos: number; isSoftWrap: boolean } | null => {
-			const doc = view.state.doc;
-			const line = doc.lineAt(pos);
-
-			if (pos === line.from) {
-				// At the start of a logical line → go to the previous logical line's
-				// last visual segment.
-				if (line.number <= 1) return null; // top of document
-				const prevLine = doc.line(line.number - 1);
-
-				const endCoords = view.coordsAtPos(prevLine.to, -1);
-				if (!endCoords) return { pos: prevLine.from, isSoftWrap: false };
-
-				const endTop = endCoords.top;
-				for (let p = prevLine.to - 1; p >= prevLine.from; p--) {
-					const c = view.coordsAtPos(p, 1);
-					if (c && c.top < endTop - 1) {
-						// p+1 is the start of the last visual segment of prevLine
-						return { pos: p + 1, isSoftWrap: true };
-					}
-				}
-				return { pos: prevLine.from, isSoftWrap: false };
-			}
-
-			// Within a wrapped logical line: find the start of the visual line
-			// above the one that starts at `pos`.
-			// coordsAtPos(pos, -1) gives the end of the previous visual line.
-			const aboveCoords = view.coordsAtPos(pos, -1);
-			if (!aboveCoords) return null;
-			const aboveTop = aboveCoords.top;
-
-			// Scan backward with assoc=1; when coordsAtPos(p,1).top drops below
-			// aboveTop, p+1 is where the "above" visual line begins.
-			for (let p = pos - 1; p >= line.from; p--) {
-				const c = view.coordsAtPos(p, 1);
-				if (!c) continue;
-				if (c.top < aboveTop - 1) {
-					return { pos: p + 1, isSoftWrap: true };
-				}
-			}
-
-			// No earlier wrap: the visual line starts at the logical-line start
-			return { pos: line.from, isSoftWrap: false };
-		};
-
-		const findNextRenderableCell = (
-			view: EditorView,
-			fromPos: number
-		): { pos: number; assoc: 1 | -1 } | null => {
-			const doc = view.state.doc;
-			const line = doc.lineAt(fromPos);
-			const baseline = view.coordsAtPos(fromPos, -1) ?? view.coordsAtPos(fromPos, 1);
-			if (!baseline) return null;
-
-			for (let probe = fromPos + 1; probe <= line.to; probe++) {
-				const leftEdge = view.coordsAtPos(probe - 1, -1);
-				const rightEdge = view.coordsAtPos(probe, -1);
-				if (!leftEdge || !rightEdge) continue;
-				if (Math.abs(leftEdge.top - baseline.top) > view.defaultLineHeight * 0.3) break;
-
-				const width = rightEdge.left - leftEdge.left;
-				if (width >= (view.defaultCharacterWidth || 10) * 0.5) {
-					return { pos: probe - 1, assoc: -1 };
-				}
-			}
-
-			return null;
-		};
-
-		const handleRight = (view: EditorView): boolean => {
-			if (plugin.settings.customCursorStyle !== 'block') return false;
-
-			// Multi-cursor: if more than one cursor exists (including multiple collapsed
-			// cursors from Alt+Click), skip all wrap-correction logic entirely so that
-			// all cursors receive identical CM6-native movement.
-			if (view.state.selection.ranges.length > 1) return false;
-
-			const sel = view.state.selection.main;
-			// Return false when selection is non-empty: Shift+Arrow creates a selection,
-			// which is CM6's default behavior. We intentionally let CM6 extend the selection
-			// rather than trying to apply our wrap-correction logic to it.
-
-			const pos = sel.head;
-			clearHiddenBoundaryRenderState();
-
-			if (plugin.blockWrapState && plugin.blockWrapState.logicalPos === pos) {
-				plugin.blockWrapState = null;
-				return false;
-			}
-
-			if (sel.assoc !== 1 && isSoftWrap(view, pos)) {
-				plugin.blockWrapState = { logicalPos: pos, showPos: pos, assoc: 1 };
-				pendingDownFromWrapPos = pos;
-				view.dispatch({ selection: EditorSelection.cursor(pos, 1) });
-				return true;
-			}
-
-			plugin.blockWrapState = null;
-			return false;
-		};
-
-		const handleLeft = (view: EditorView): boolean => {
-			if (plugin.settings.customCursorStyle !== 'block') return false;
-			// Clear state on any leftward movement (selection or not): we've left the
-			// wrap boundary context, so any pending wrap-correction is no longer relevant.
-
-			plugin.blockWrapState = null;
-			pendingDownFromWrapPos = null;
-			clearHiddenBoundaryRenderState();
-			return false;
-		};
-
-		const handleHome = (view: EditorView): boolean => {
-			if (plugin.settings.customCursorStyle !== 'block') return false;
-			if (view.state.selection.ranges.length > 1) return false;
-
-			const sel = view.state.selection.main;
-			if (!sel.empty) return false;
-
-			debugNav('handleHome', {
-				pos: sel.head,
-				assoc: sel.assoc,
-				blockWrapState: plugin.blockWrapState
-			});
-
-			plugin.blockWrapState = null;
-			pendingDownFromWrapPos = null;
-			plugin.lastKey = 'Home';
-			clearHiddenBoundaryRenderState();
-			return false;
-		};
-
-		const handleDown = (view: EditorView): boolean => {
-			if (plugin.settings.customCursorStyle !== 'block') return false;
-
-			// Multi-cursor: skip wrap-correction so all cursors move identically via CM6.
-			if (view.state.selection.ranges.length > 1) return false;
-
-			const sel = view.state.selection.main;
-			if (!sel.empty) return false;
-
-			const pos = sel.head;
-
-			const wrapStateForPos =
-				plugin.blockWrapState &&
-				plugin.blockWrapState.logicalPos === pos &&
-				plugin.blockWrapState.assoc === 1
-					? plugin.blockWrapState
-					: null;
-
-			const allowWrappedDown =
-				!!wrapStateForPos || pendingDownFromWrapPos === pos;
-
-			debugNav('handleDown', {
-				pos,
-				assoc: sel.assoc,
-				wrapStateForPos,
-				pendingDownFromWrapPos,
-				allowWrappedDown
-			});
-
-			if (!allowWrappedDown) {
-				clearHiddenBoundaryRenderState();
-				return false;
-			}
-
-			const target = findStartOfNextVisualLineFromWrap(view, pos);
-			pendingDownFromWrapPos = null;
-			debugNav('handleDown:target', {
-				fromPos: pos,
-				target,
-				blockWrapStateBefore: plugin.blockWrapState
-			});
-
-			if (!target) {
-				plugin.blockWrapState = null;
-				clearHiddenBoundaryRenderState();
-				return false;
-			}
-
-			// Set plugin.blockWrapState for the target position so the renderer shows
-			// the cursor at the start of the continuation line (assoc=1),
-			// just like handleRight() does.
-			plugin.blockWrapState = { logicalPos: target.pos, showPos: target.pos, assoc: 1 };
-			clearHiddenBoundaryRenderState();
-			view.dispatch({
-				selection: EditorSelection.cursor(target.pos, 1),
-				scrollIntoView: true
-			});
-			return true;
-		};
-
-		const handleUp = (view: EditorView): boolean => {
-			if (plugin.settings.customCursorStyle !== 'block') return false;
-
-			// Multi-cursor: skip wrap-correction so all cursors move identically via CM6.
-			if (view.state.selection.ranges.length > 1) return false;
-
-			const sel = view.state.selection.main;
-			if (!sel.empty) return false;
-
-			const pos = sel.head;
-
-			// CASE 1: Cursor is at a known wrap boundary (plugin.blockWrapState active,
-			// visually at the start of a continuation line).  Compute the target
-			// ourselves — symmetric to handleDown's findStartOfNextVisualLineFromWrap.
-			if (plugin.blockWrapState && plugin.blockWrapState.logicalPos === pos && plugin.blockWrapState.assoc === 1) {
-				const target = findStartOfPreviousVisualLineFromWrap(view, pos);
-				debugNav('handleUp:wrapped', {
-					pos,
-					assoc: sel.assoc,
-					blockWrapState: plugin.blockWrapState,
-					target
-				});
-
-				if (!target) {
-					plugin.blockWrapState = null;
-					clearHiddenBoundaryRenderState();
-					return false; // top of document — let CM6 handle
-				}
-
-				if (target.isSoftWrap) {
-					plugin.blockWrapState = { logicalPos: target.pos, showPos: target.pos, assoc: 1 };
-					pendingDownFromWrapPos = target.pos;
-				} else {
-					plugin.blockWrapState = null;
-					pendingDownFromWrapPos = null;
-					clearHiddenBoundaryRenderState();
-				}
-
-				// Tag with 'visible-cursor.wrap-correction' so navCorrection's early-exit
-				// guard skips this transaction and does not undo the CASE1 movement.
-				view.dispatch({
-					selection: EditorSelection.cursor(target.pos, 1),
-					scrollIntoView: true,
-					annotations: Transaction.userEvent.of('visible-cursor.wrap-correction')
-				});
-				return true;
-			}
-
-			// CASE 2: Cursor NOT at a known wrap boundary.
-			// Let CM6 handle the movement; navCorrection fixes assoc if needed.
-			debugNav('handleUp:passthrough', {
-				pos,
-				assoc: sel.assoc,
-				blockWrapState: plugin.blockWrapState,
-				pendingDownFromWrapPos
-			});
-			return false;
-		};
-
-		const navCorrection = EditorView.updateListener.of((update: ViewUpdate) => {
-			if (!update.selectionSet && !update.docChanged) return;
-
-			// Explicit re-entrancy guard: every corrective dispatch below is tagged with
-			// 'visible-cursor.wrap-correction'. When navCorrection is re-triggered by one
-			// of those dispatches, bail immediately rather than relying on assoc arithmetic
-			// to implicitly prevent re-dispatching. This makes the loop-breaking contract
-			// visible and robust against future edits.
-			if (update.transactions.some(t => t.isUserEvent('visible-cursor.wrap-correction'))) return;
-
-			const sel = update.state.selection.main;
-			const oldSel = update.startState.selection.main;
-			const pos = sel.head;
-
-			debugNav('navCorrection:start', {
-				selectionSet: update.selectionSet,
-				docChanged: update.docChanged,
-				oldHead: oldSel.head,
-				oldAssoc: oldSel.assoc,
-				newHead: sel.head,
-				newAssoc: sel.assoc,
-				lastKey: plugin.lastKey,
-				blockWrapState: plugin.blockWrapState,
-				transactions: update.transactions.map(t => ({
-					home: t.isUserEvent('emacs.moveToStart'),
-					end: t.isUserEvent('emacs.moveToEnd'),
-					pointer: t.isUserEvent('select.pointer'),
-					wrapCorrection: t.isUserEvent('visible-cursor.wrap-correction')
-				}))
-			});
-
-			// Multi-cursor: if more than one cursor exists (including multiple collapsed
-			// cursors from Alt+Click), clear any pending wrap state and skip all corrective
-			// dispatches so that every cursor receives identical CM6-native movement.
-			if (update.state.selection.ranges.length > 1) {
-				plugin.blockWrapState = null;
-				pendingDownFromWrapPos = null;
-				clearHiddenBoundaryRenderState();
-				return;
-			}
-
-			const oldWrapState = plugin.blockWrapState;
-
-			// Note: When user presses Shift+Arrow, handlers fall through to CM6
-			// default behavior, but navCorrection may dispatch new transactions based on 
-			// plugin.blockWrapState without checking if the selection is intentional."
-			//
-			// This is correct behavior. When the user creates a selection (Shift+Arrow),
-			// the selection IS intentional — it's standard text selection. The wrap-correction
-			// state (blockWrapState: plugin.blockWrapState, pendingDownFromWrapPos) is specifically for single-cursor
-			// navigation through wrapped lines. A selection is a different operation: it selects
-			// text, not navigates cursor position. Clearing the state here prevents wrap-correction
-			// logic from accidentally affecting text selection ranges.
-			//
-			// Additionally, the early-exit below ensures navCorrection doesn't dispatch any 
-			// corrective transactions when sel.empty is false (i.e., there's a selection).
-			if (plugin.blockWrapState !== null) {
-				if (update.docChanged || !sel.empty || sel.head !== plugin.blockWrapState.logicalPos) {
-					plugin.blockWrapState = null;
-				}
-			}
-
-			if (plugin.hiddenBoundaryRenderState !== null) {
-				if (update.docChanged || !sel.empty || sel.head !== plugin.hiddenBoundaryRenderState.logicalPos) {
-					clearHiddenBoundaryRenderState();
-				}
-			}
-
-			if (pendingDownFromWrapPos !== null) {
-				if (update.docChanged || !sel.empty) {
-					pendingDownFromWrapPos = null;
-				}
-			}
-
-			if (!update.selectionSet || update.docChanged) return;
-			if (plugin.settings.customCursorStyle !== 'block') return;
-			// EARLY EXIT: When selection is non-empty (e.g., Shift+Arrow), do not apply
-			// any wrap-correction transactions. The user is selecting text, not navigating.
-			if (!sel.empty) return;
-
-			if (update.transactions.some(t => t.isUserEvent('select.pointer'))) return;
-			if (update.transactions.some(t => t.isUserEvent('emacs.moveToEnd'))) return;
-
-			if (Math.abs(pos - oldSel.head) > 1 && oldSel.head > pos && oldSel.assoc >= 0 && sel.assoc === 0) {
-				const renderTarget = findNextRenderableCell(update.view, pos);
-				if (renderTarget) {
-					plugin.hiddenBoundaryRenderState = {
-						logicalPos: pos,
-						showPos: renderTarget.pos,
-						assoc: renderTarget.assoc
-					};
-					debugNav('navCorrection:hidden-boundary-render', {
-						oldHead: oldSel.head,
-						newHead: pos,
-						oldAssoc: oldSel.assoc,
-						newAssoc: sel.assoc,
-						renderTarget
-					});
-				} else {
-					clearHiddenBoundaryRenderState();
-				}
-			}
-
-			// 1. Handle moving FORWARD by 1 char from a wrap boundary (e.g. Emacs forward char after End key)
-			if (pos - oldSel.head === 1) {
-				if (isSoftWrap(update.view, pos)) {
-					plugin.blockWrapState = { logicalPos: pos, showPos: pos, assoc: 1 };
-					pendingDownFromWrapPos = pos;
-					update.view.dispatch({
-						selection: EditorSelection.cursor(pos, 1),
-						annotations: Transaction.userEvent.of('visible-cursor.wrap-correction')
-					});
-					return;
-				}
-				if (isSoftWrap(update.view, oldSel.head) && oldSel.assoc === -1) {
-					plugin.blockWrapState = { logicalPos: oldSel.head, showPos: oldSel.head, assoc: 1 };
-					pendingDownFromWrapPos = oldSel.head;
-					update.view.dispatch({
-						selection: EditorSelection.cursor(oldSel.head, 1),
-						annotations: Transaction.userEvent.of('visible-cursor.wrap-correction')
-					});
-					return;
-				}
-			}
-
-			// 1b. Handle moving BACKWARD by 1 char onto a wrap boundary
-			if (pos - oldSel.head === -1 && isSoftWrap(update.view, pos) && sel.assoc !== 1) {
-				plugin.blockWrapState = { logicalPos: pos, showPos: pos, assoc: 1 };
-				pendingDownFromWrapPos = pos;
-				update.view.dispatch({
-					selection: EditorSelection.cursor(pos, 1),
-					annotations: Transaction.userEvent.of('visible-cursor.wrap-correction')
-				});
-				return;
-			}
-
-			// 2. Generalized vertical movement correction
-			if (pos !== oldSel.head && Math.abs(pos - oldSel.head) > 1) {
-				// Consume lastKey immediately: it is a one-shot signal valid only for the
-					// single navCorrection cycle that follows the keydown that set it.
-					// Consuming here prevents stale 'End'/'Home' values from suppressing
-					// wrap corrections in later, unrelated navigation events (e.g. after the
-					// editor loses and regains focus, or after keydowns in other editor panes).
-				const consumedKey = plugin.lastKey;
-				plugin.lastKey = '';
-				debugNav('navCorrection:largeMove', {
-					oldHead: oldSel.head,
-					newHead: pos,
-					consumedKey
-				});
-				// If the user pressed End or Home, do NOT apply vertical corrections
-				// because they are horizontal movements that can look like vertical ones
-				if (consumedKey === 'End' || consumedKey === 'Home') {
-					debugNav('navCorrection:skip-horizontal-key', { consumedKey, oldHead: oldSel.head, newHead: pos });
-					return;
-				}
-
-				// Also ignore emacs.moveToEnd and emacs.moveToStart which are horizontal
-				if (update.transactions.some(t => t.isUserEvent('emacs.moveToEnd') || t.isUserEvent('emacs.moveToStart'))) {
-					debugNav('navCorrection:skip-emacs-move', { oldHead: oldSel.head, newHead: pos });
-					return;
-				}
-
-				// Determine the actual visual top coordinates at the old and new positions.
-					// Use the assoc from blockWrapState when the old position was a known wrap
-					// boundary (assoc: 1), otherwise use sel.assoc/-1 as normal.
-					const oldAssoc = (oldWrapState !== null && oldSel.head === oldWrapState.logicalPos) ? 1 : (oldSel.assoc || -1);
-					const oldCoords = update.view.coordsAtPos(oldSel.head, oldAssoc as 1 | -1);
-					const newCoords = update.view.coordsAtPos(pos, sel.assoc || -1);
-	
-				if (oldCoords && newCoords) {
-					const dy = newCoords.top - oldCoords.top;
-					debugNav('navCorrection:coords', {
-						oldHead: oldSel.head,
-						newHead: pos,
-						oldAssoc,
-						newAssoc: sel.assoc || -1,
-						oldCoords,
-						newCoords,
-						dy
-					});
-	
-						// Compute the actual height of the visual line at the OLD position by
-						// measuring the gap between the old coord top and the top of the next
-						// visual line (i.e. the bottom of the current line).
-						// This is more accurate than defaultLineHeight, which is a global average
-						// and breaks with mixed line spacing (headings, code blocks, etc.).
-						//
-						// Strategy: sample coordsAtPos at oldSel.head with assoc=-1 to land at
-						// the END of the previous visual segment (bottom of the old line), then
-						// read its .bottom as the "line bottom" reference. If that isn't
-						// available, fall back to defaultLineHeight.
-						const oldLineBottomRef = update.view.coordsAtPos(oldSel.head, -1);
-						const actualLineHeight = oldLineBottomRef
-							? (oldLineBottomRef.bottom - oldLineBottomRef.top)
-							: update.view.defaultLineHeight;
-	
-						// Use 50% of the actual line height as the "crossed a line boundary" threshold:
-						// any |dy| > 0.5 * lineHeight means the cursor is on a different visual line.
-						// Any |dy| between 0.5 and 1.5 * lineHeight means "exactly one line moved".
-						// Any |dy| > 1.5 * lineHeight means "moved more than one line".
-						const halfLine  = actualLineHeight * 0.5;
-						const oneAndHalf = actualLineHeight * 1.5;
-	
-						// 2a. If moved UP more than 1 line and landed on a wrap boundary, force assoc: 1.
-						// The old 1.5× threshold was relative to defaultLineHeight; now it is relative to
-						// the actual height of the line the cursor was on before moving.
-						if (dy < -oneAndHalf && isSoftWrap(update.view, pos) && sel.assoc !== 1) {
-							plugin.blockWrapState = { logicalPos: pos, showPos: pos, assoc: 1 };
-							pendingDownFromWrapPos = pos;
-							update.view.dispatch({
-								selection: EditorSelection.cursor(pos, 1),
-								annotations: Transaction.userEvent.of('visible-cursor.wrap-correction')
-							});
-							return;
-						}
-	
-						// 2b/2c/2d: only applies when the old position was a known wrap boundary.
-						if (oldWrapState !== null && oldSel.head === oldWrapState.logicalPos) {
-							// 2b. Moved exactly 1 line DOWN from a wrap boundary (e.g. Emacs next line).
-							if (dy > halfLine && dy < oneAndHalf) {
-								const target = findStartOfNextVisualLineFromWrap(update.view, oldSel.head);
-								if (target) {
-									plugin.blockWrapState = { logicalPos: target.pos, showPos: target.pos, assoc: 1 };
-									pendingDownFromWrapPos = target.pos;
-									update.view.dispatch({
-										selection: EditorSelection.cursor(target.pos, 1),
-										scrollIntoView: true,
-										annotations: Transaction.userEvent.of('visible-cursor.wrap-correction')
-									});
-									return;
-								}
-							}
-	
-							// 2c. Moved UP from a wrap boundary (e.g. Emacs previous line).
-							// We don't cap at 1.5× line height: when the wrap boundary is preceded
-							// by a short logical line (e.g. "Bob"), goUp can overshoot by 2+ visual
-							// lines. We always want exactly 1 visual line up from the wrap boundary.
-							if (dy < -halfLine) {
-								const target = findStartOfPreviousVisualLineFromWrap(update.view, oldSel.head);
-								if (target) {
-									if (target.isSoftWrap) {
-										plugin.blockWrapState = { logicalPos: target.pos, showPos: target.pos, assoc: 1 };
-										pendingDownFromWrapPos = target.pos;
-									}
-									update.view.dispatch({
-										selection: EditorSelection.cursor(target.pos, 1),
-										scrollIntoView: true,
-										annotations: Transaction.userEvent.of('visible-cursor.wrap-correction')
-									});
-									return;
-								}
-							}
-	
-							// 2d. Cursor stayed on the SAME visual line (dy ≈ 0). This happens with
-							// Obsidian's goDown command (Emacs next line) when it uses logical columns
-							// and lands at the end of the same wrapped segment instead of the next one.
-							// Threshold: less than half a line height — robust against subpixel drift.
-							if (Math.abs(dy) < halfLine) {
-								const target = findStartOfNextVisualLineFromWrap(update.view, oldSel.head);
-								if (target) {
-									plugin.blockWrapState = { logicalPos: target.pos, showPos: target.pos, assoc: 1 };
-									pendingDownFromWrapPos = target.pos;
-									update.view.dispatch({
-										selection: EditorSelection.cursor(target.pos, 1),
-										scrollIntoView: true,
-										annotations: Transaction.userEvent.of('visible-cursor.wrap-correction')
-									});
-									return;
-								}
-							}
-						}
-					}
-			}
-		});
-
-		return [
-			// Use highest precedence so this plugin's Home/End override runs before
-			// CodeMirror/Obsidian default keymaps for wrapped-line cursor motion.
-			// If the default binding handles them 1st, special visual-line behavior never runs.
-			Prec.highest(keymap.of([
-				{ key: 'Home', run: handleHome },
-				{ key: 'ArrowRight', run: handleRight },
-				{ key: 'ArrowLeft', run: handleLeft },
-				{ key: 'ArrowDown', run: handleDown },
-				{ key: 'ArrowUp', run: handleUp },
-			])),
-			navCorrection
-		];
-	}
-
-	scheduleFlash(trigger: string, isMouseClick: boolean) {
-		if (isMouseClick) return;
-
-		const state: FlashState = {
-			isFenceActive: this.clickFenceActive,
-			isFlashActive: this.flashActive,
-			hasPendingFlash: !!this.pendingFlashTrigger,
-			lastViewChange: this.lastViewChange,
-			now: Date.now()
-		};
-
-		if (!this.flashScheduler.canScheduleFlash(trigger, state)) return;
-
-		this.lastViewChange = state.now;
-		if (this.flashTimeout) {
-			clearTimeout(this.flashTimeout);
-		}
-
-		this.pendingFlashTrigger = trigger;
-		this.flashTimeout = this.flashScheduler.scheduleCallback(() => {
-			this.showFlash();
-			this.pendingFlashTrigger = null;
-		}, 50);
-	}
-
-	/**
-	 * Retrieve the underlying CodeMirror 6 EditorView from an Obsidian MarkdownView.
-	 *
-	 * **Internal API dependency**: Obsidian wraps CM6 in its own Editor abstraction
-	 * and does not expose EditorView through its public API. The `.cm` property is an
-	 * internal implementation detail that the Obsidian community accesses via `as any`
-	 * cast. This helper centralises that access so any future change (rename, removal)
-	 * only requires updating a single location.
-	 *
-	 * Confirmed working: Obsidian 1.x / CM6.
-	 */
-	private getCMView(markdownView: MarkdownView): EditorView | null {
-		if (!markdownView.editor) return null;
-		return (markdownView.editor as any).cm as EditorView ?? null;
-	}
-
-	showFlash() {
-		const view = this.app.workspace.getActiveViewOfType(MarkdownView);
-		if (!view || !view.editor) return;
-
-		const editorView = this.getCMView(view);
-		if (!editorView) return;
-
-		if (this.scrollDebounceTimer) {
-			clearTimeout(this.scrollDebounceTimer);
-			this.scrollDebounceTimer = null;
-		}
-
-		if (this.settings.lineHighlightMode === 'left') {
-			this.showLineFlash(editorView);
-		} else if (this.settings.lineHighlightMode === 'centered') {
-			this.showCursorCenteredFlash(editorView);
-		} else if (this.settings.lineHighlightMode === 'right') {
-			this.showLineFlashRightToLeft(editorView);
-		}
-
-		this.flashActive = true;
-		if (this.settings.customCursorMode === 'flash') {
-			document.body.classList.add('visible-cursor-flash-active');
-		}
-
-		if (this.resetFlashTimeout) {
-			clearTimeout(this.resetFlashTimeout);
-		}
-
-		this.resetFlashTimeout = this.flashScheduler.scheduleReset(() => {
-			this.flashActive = false;
-			if (this.settings.customCursorMode === 'flash') {
-				document.body.classList.remove('visible-cursor-flash-active');
-			}
-		}, this.settings.flashDuration);
-	}
-
-	/** Get cursor coords using selection.assoc for correct soft-wrap boundary handling */
-	private cursorCoords(editorView: EditorView): { top: number; bottom: number; left: number; right: number } | null {
-		const cursor = this.app.workspace.getActiveViewOfType(MarkdownView)?.editor;
-		if (!cursor) return null;
-		const pos = (cursor as any).posToOffset(cursor.getCursor());
-		const assoc = editorView.state.selection.main.assoc || -1;
-		return editorView.coordsAtPos(pos, assoc);
-	}
-
-	showLineFlash(editorView: EditorView) {
-		const coords = this.cursorCoords(editorView);
-		if (!coords) return;
-
-		const editorElement = editorView.contentDOM;
-		const editorRect = editorElement.getBoundingClientRect();
-		const lineHeight = editorView.defaultLineHeight;
-		const { color, opacity } = this.colorProvider.getColor(this.settings);
-		const rgb = this.colorProvider.resolveColorToRgb(color);
-		const fontSize = parseFloat(getComputedStyle(editorElement).fontSize) || 16;
-		const charWidth = fontSize * 0.6;
-		const highlightDistance = this.settings.flashSize * charWidth;
-		const highlightPercent = Math.min(100, (highlightDistance / editorRect.width) * 100);
-
-		const colorStop = `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${opacity})`;
-		const cssText = `
+  settings: VisibleCursorPluginSettings;
+  private styleElement: HTMLStyleElement | null = null;
+  lastKey: string = "";
+  debugCursorDiagnostics: boolean = true;
+
+  private lastViewChange: number = 0;
+  private flashTimeout: NodeJS.Timeout | null = null;
+  private resetFlashTimeout: NodeJS.Timeout | null = null;
+  private scrollDebounceTimer: NodeJS.Timeout | null = null;
+  private lastScrollPosition: number = 0;
+  flashActive: boolean = false; // public so CustomCursorViewPlugin can read it
+  private clickFenceActive: boolean = false;
+  private pendingFlashTrigger: string | null = null;
+  private scrollFlashSuppressedUntil: number = 0;
+  private boundStartFence: () => void;
+  private boundEndFenceSoon: () => void;
+  private boundClickEndFence: () => void;
+  private boundKeydown: (e: KeyboardEvent) => void;
+  isComposing: boolean = false;
+  private boundCompositionStart: () => void;
+  private boundCompositionEnd: () => void;
+
+  // Shared state for block cursor wrap navigation
+  blockWrapState: BlockWrapState | null = null;
+  hiddenBoundaryRenderState: HiddenBoundaryRenderState | null = null;
+
+  // Services
+  colorProvider: ColorProvider; // public so CustomCursorViewPlugin can read it
+  private flashScheduler: FlashScheduler;
+  private flashRenderer: FlashRenderer;
+
+  async onload() {
+    await this.loadSettings();
+
+    // Initialize services
+    this.colorProvider = new ColorProvider();
+    this.flashScheduler = new FlashScheduler();
+    this.flashRenderer = new FlashRenderer();
+
+    this.addSettingTab(new VisibleCursorSettingTab(this.app, this));
+
+    const pluginRef = this;
+
+    // Register editor extensions:
+    // 1. CustomCursorViewPlugin — codemirror-emacs BlockCursorPlugin pattern
+    // 2. domEventHandlers — scroll-triggered flashes
+    // 3. blockCursorNavFilter — GNU Emacs soft-wrap boundary navigation for block cursor
+    this.registerEditorExtension([
+      ViewPlugin.define((view) => new CustomCursorViewPlugin(view, pluginRef)),
+      this.createDOMEventHandlers(),
+      ...this.createBlockCursorNavFilter(),
+    ]);
+
+    requestAnimationFrame(() =>
+      requestAnimationFrame(() => this.updateCursorStyles()),
+    );
+
+    this.registerEvent(
+      this.app.workspace.on("active-leaf-change", () => {
+        requestAnimationFrame(() => this.updateCursorStyles());
+        if (this.settings.flashOnWindowChanges) {
+          requestAnimationFrame(() =>
+            requestAnimationFrame(() =>
+              this.scheduleFlash("view-change", false),
+            ),
+          );
+        }
+      }),
+    );
+
+    this.registerEvent(
+      this.app.workspace.on("layout-change", () => {
+        if (this.settings.flashOnWindowChanges) {
+          requestAnimationFrame(() =>
+            requestAnimationFrame(() =>
+              this.scheduleFlash("layout-change", false),
+            ),
+          );
+        }
+      }),
+    );
+
+    this.registerEvent(
+      this.app.workspace.on("css-change", () => {
+        this.app.workspace.updateOptions();
+        this.colorProvider.clearCache();
+        requestAnimationFrame(() => this.updateCursorStyles());
+      }),
+    );
+
+    // Global click fence: raised in capture-phase pointerdown
+    this.boundStartFence = () => {
+      this.clickFenceActive = true;
+    };
+    this.boundEndFenceSoon = () => {
+      setTimeout(() => {
+        this.clickFenceActive = false;
+      }, 400);
+    };
+    this.boundClickEndFence = () => {
+      this.boundEndFenceSoon();
+    };
+    this.boundKeydown = (e: KeyboardEvent) => {
+      this.lastKey = e.key;
+    };
+    this.boundCompositionStart = () => {
+      this.isComposing = true;
+      document.body.classList.add("visible-cursor-is-composing");
+      this.refreshDecorations();
+    };
+    this.boundCompositionEnd = () => {
+      this.isComposing = false;
+      document.body.classList.remove("visible-cursor-is-composing");
+      this.refreshDecorations();
+    };
+    window.addEventListener("pointerdown", this.boundStartFence, {
+      capture: true,
+    });
+    window.addEventListener("pointerup", this.boundEndFenceSoon, {
+      capture: true,
+    });
+    window.addEventListener("pointercancel", this.boundEndFenceSoon, {
+      capture: true,
+    });
+    window.addEventListener("click", this.boundClickEndFence, {
+      capture: true,
+    });
+    window.addEventListener("keydown", this.boundKeydown, { capture: true });
+    window.addEventListener("compositionstart", this.boundCompositionStart, {
+      capture: true,
+    });
+    window.addEventListener("compositionend", this.boundCompositionEnd, {
+      capture: true,
+    });
+  }
+
+  createDOMEventHandlers() {
+    const plugin = this;
+
+    return EditorView.domEventHandlers({
+      scroll: (event: Event, view: EditorView) => {
+        if (!plugin.settings.flashOnWindowScrolls) return false;
+
+        const currentScrollPos = view.scrollDOM.scrollTop;
+        const scrollDelta = Math.abs(
+          currentScrollPos - plugin.lastScrollPosition,
+        );
+        plugin.lastScrollPosition = currentScrollPos;
+
+        const now = Date.now();
+        if (plugin.flashActive || now < plugin.scrollFlashSuppressedUntil) {
+          plugin.scrollFlashSuppressedUntil = now + 300;
+          if (plugin.scrollDebounceTimer) {
+            clearTimeout(plugin.scrollDebounceTimer);
+            plugin.scrollDebounceTimer = null;
+          }
+          return false;
+        }
+
+        if (plugin.scrollDebounceTimer) {
+          clearTimeout(plugin.scrollDebounceTimer);
+        }
+
+        const debounceTime =
+          plugin.flashScheduler.getScrollDebounceTime(scrollDelta);
+        plugin.scrollDebounceTimer = setTimeout(() => {
+          plugin.scheduleFlash("scroll", false);
+          plugin.scrollDebounceTimer = null;
+        }, debounceTime);
+
+        return false;
+      },
+    });
+  }
+
+  /**
+   * GNU Emacs block cursor navigation at soft-wrap boundaries.
+   *
+   * Diagnostic data from testing (coordsAtPos) at soft-wrap boundary P
+   * (the first character of the continuation line in Obsidian/CM6):
+   *   coordsAtPos(P, -1).top = visual line 1 top  ← END of wrapped line
+   *   coordsAtPos(P, +1).top = visual line 2 top  ← START of continuation line
+   *
+   * The `buildMeasureReq` read function already handles the visual positioning:
+   * at a soft-wrap boundary with sel.assoc ≤ 0 (CM6's default after a rightward
+   * move), it overrides to assoc=+1 so the block appears on line 2.
+   *
+   * This filter handles:
+   *   • ArrowRight: When the cursor arrives at P via a rightward keyboard move,
+   *     block shows on line 2 immediately. Pressing → AGAIN should advance to P+1
+   *     (second char of continuation line), not stay at P.
+   *   • ArrowDown: When the block cursor is visually shown at the start of a
+   *     wrapped continuation line (assoc=1 at soft-wrap boundary), Down should
+   *     use that visual x-position as the anchor for vertical movement, rather
+   *     than the underlying logical position.
+   *
+   * Bar / thinbar cursors are completely unaffected.
+   */
+  createBlockCursorNavFilter() {
+    const plugin = this;
+
+    const debugNav = (label: string, data: Record<string, unknown>) => {
+      if (!plugin.debugCursorDiagnostics) return;
+      console.log("[visible-cursor]", label, data);
+    };
+
+    const clearHiddenBoundaryRenderState = () => {
+      plugin.hiddenBoundaryRenderState = null;
+    };
+
+    // ─────────────────────────────────────────────────────────────────────
+    // Implicit state machine for block cursor navigation at soft-wrap boundaries
+    //
+    // STATE VARIABLES
+    // ───────────────
+    //   plugin.blockWrapState  (BlockWrapState | null)  — class field on VisibleCursorPlugin
+    //     Non-null when the cursor is visually sitting at the START of a soft-wrap
+    //     continuation line.  The renderer reads this to override the coordinate
+    //     lookup (assoc=+1 instead of CM6's default assoc=-1).
+    //     Shape: { logicalPos, showPos, assoc }
+    //
+    //   pendingDownFromWrapPos  (number | null)  — closure variable in this function
+    //     Set to the wrap-boundary position whenever we park the cursor there via
+    //     a keymap handler (handleRight, handleUp).  Consumed by handleDown so that
+    //     ArrowDown uses the visual x-position of the wrap boundary as its column
+    //     anchor rather than the logical-line column.
+    //     NOTE: this is a timing bridge — blockWrapState may be cleared by
+    //     navCorrection between keystrokes, but pendingDownFromWrapPos persists
+    //     one more cycle so handleDown still knows it came from a wrap boundary.
+    //
+    // STATES
+    // ──────
+    //   IDLE
+    //     blockWrapState        = null
+    //     pendingDownFromWrapPos = null
+    //
+    //   AT_WRAP_BOUNDARY
+    //     blockWrapState        = { logicalPos: P, showPos: P, assoc: 1 }
+    //     pendingDownFromWrapPos = P
+    //     (cursor is visually at the start of continuation line, logical pos = P)
+    //
+    // TRANSITIONS
+    // ───────────
+    //   Any state → AT_WRAP_BOUNDARY
+    //     Triggered by: handleRight   (ArrowRight arrives at wrap boundary)
+    //                   handleUp      (ArrowUp lands on a wrap-start)
+    //                   navCorrection (CM6-native +1/-1 char move; vertical move > 1 line up;
+    //                                 vertical move 1 line down from wrap; vertical same-line)
+    //
+    //   AT_WRAP_BOUNDARY → IDLE
+    //     Triggered by: handleRight   (second ArrowRight — advances past boundary)
+    //                   handleLeft    (any ArrowLeft — leaves wrap context)
+    //                   handleDown    (ArrowDown executed, no new wrap boundary at target)
+    //                   handleUp      (ArrowUp executed, no new wrap boundary at target)
+    //                   navCorrection (doc changed, selection non-empty, or cursor moved away)
+    //
+    //   AT_WRAP_BOUNDARY → AT_WRAP_BOUNDARY  (re-arm at new position)
+    //     Triggered by: handleDown    (ArrowDown lands at another wrap-start)
+    //                   handleUp      (ArrowUp lands at another wrap-start)
+    //                   navCorrection (corrective dispatch after a wrap-boundary landing)
+    //
+    // READERS
+    // ───────
+    //   buildMeasureReq.read()  — reads blockWrapState to choose visualPos/assocForCoords
+    //   handleDown()            — reads pendingDownFromWrapPos OR blockWrapState to decide
+    //                            whether to compute wrap-aware vertical movement
+    //
+    // WRITER LOCATIONS
+    // ────────────────
+    //   handleRight()     sets AT_WRAP or clears (IDLE)            lines ~570–583
+    //   handleLeft()      always clears both (IDLE)                 lines ~591–593
+    //   handleDown()      sets AT_WRAP or clears; consumes pending  lines ~622–637
+    //   handleUp()        sets AT_WRAP or clears; may set pending   lines ~654–678
+    //   navCorrection     clears on guard conditions                lines ~723–733
+    //                     sets AT_WRAP on +1 char forward           lines ~747–763
+    //                     sets AT_WRAP on -1 char backward          lines ~767–774
+    //                     sets AT_WRAP on >1-line-up landing        lines ~833–841
+    //                     sets AT_WRAP on 1-line-down from wrap     lines ~848–857
+    //                     sets AT_WRAP on up from wrap              lines ~864–878
+    //                     sets AT_WRAP on same-visual-line glitch   lines ~884–896
+    // ─────────────────────────────────────────────────────────────────────
+
+    let pendingDownFromWrapPos: number | null = null;
+
+    const isSoftWrap = (view: EditorView, pos: number): boolean => {
+      const line = view.state.doc.lineAt(pos);
+
+      if (pos === line.to) return false;
+
+      const coordsBefore = view.coordsAtPos(pos, -1);
+      const coordsAfter = view.coordsAtPos(pos, 1);
+
+      if (!coordsBefore || !coordsAfter) return false;
+
+      // Use 30% of line height as the threshold instead of a hardcoded 1px value.
+      // A fixed 1px threshold fails at non-100% display scaling and with subpixel
+      // font rendering where same-line positions can legitimately differ by ~1px.
+      // 0.3 * defaultLineHeight is immune to both while remaining far below any
+      // real line-change delta (which is always ≥ 1 line height).
+      const threshold = view.defaultLineHeight * 0.3;
+      return Math.abs(coordsBefore.top - coordsAfter.top) > threshold;
+    };
+
+    const findStartOfNextVisualLineFromWrap = (
+      view: EditorView,
+      pos: number,
+    ): { pos: number; assoc: 1 | -1 } | null => {
+      const doc = view.state.doc;
+      const line = doc.lineAt(pos);
+
+      const current = view.coordsAtPos(pos, 1);
+      if (!current) return null;
+
+      // First: look for the first position later in the SAME logical line
+      // whose visual top is below the current wrapped segment.
+      for (let p = pos + 1; p <= line.to; p++) {
+        const c = view.coordsAtPos(p, 1);
+        if (!c) continue;
+
+        if (c.top > current.top + 1) {
+          return { pos: p, assoc: 1 };
+        }
+      }
+
+      // If there is no lower visual segment in this logical line, fall back to
+      // the start of the next physical line.
+      if (line.number < doc.lines) {
+        const nextLine = doc.line(line.number + 1);
+        return { pos: nextLine.from, assoc: 1 };
+      }
+
+      return null;
+    };
+
+    const findStartOfPreviousVisualLineFromWrap = (
+      view: EditorView,
+      pos: number,
+    ): { pos: number; isSoftWrap: boolean } | null => {
+      const doc = view.state.doc;
+      const line = doc.lineAt(pos);
+
+      if (pos === line.from) {
+        // At the start of a logical line → go to the previous logical line's
+        // last visual segment.
+        if (line.number <= 1) return null; // top of document
+        const prevLine = doc.line(line.number - 1);
+
+        const endCoords = view.coordsAtPos(prevLine.to, -1);
+        if (!endCoords) return { pos: prevLine.from, isSoftWrap: false };
+
+        const endTop = endCoords.top;
+        for (let p = prevLine.to - 1; p >= prevLine.from; p--) {
+          const c = view.coordsAtPos(p, 1);
+          if (c && c.top < endTop - 1) {
+            // p+1 is the start of the last visual segment of prevLine
+            return { pos: p + 1, isSoftWrap: true };
+          }
+        }
+        return { pos: prevLine.from, isSoftWrap: false };
+      }
+
+      // Within a wrapped logical line: find the start of the visual line
+      // above the one that starts at `pos`.
+      // coordsAtPos(pos, -1) gives the end of the previous visual line.
+      const aboveCoords = view.coordsAtPos(pos, -1);
+      if (!aboveCoords) return null;
+      const aboveTop = aboveCoords.top;
+
+      // Scan backward with assoc=1; when coordsAtPos(p,1).top drops below
+      // aboveTop, p+1 is where the "above" visual line begins.
+      for (let p = pos - 1; p >= line.from; p--) {
+        const c = view.coordsAtPos(p, 1);
+        if (!c) continue;
+        if (c.top < aboveTop - 1) {
+          return { pos: p + 1, isSoftWrap: true };
+        }
+      }
+
+      // No earlier wrap: the visual line starts at the logical-line start
+      return { pos: line.from, isSoftWrap: false };
+    };
+
+    const findNextRenderableCell = (
+      view: EditorView,
+      fromPos: number,
+    ): { pos: number; assoc: 1 | -1 } | null => {
+      const doc = view.state.doc;
+      const line = doc.lineAt(fromPos);
+      const baseline =
+        view.coordsAtPos(fromPos, -1) ?? view.coordsAtPos(fromPos, 1);
+      if (!baseline) return null;
+
+      for (let probe = fromPos + 1; probe <= line.to; probe++) {
+        const leftEdge = view.coordsAtPos(probe - 1, -1);
+        const rightEdge = view.coordsAtPos(probe, -1);
+        if (!leftEdge || !rightEdge) continue;
+        if (
+          Math.abs(leftEdge.top - baseline.top) >
+          view.defaultLineHeight * 0.3
+        )
+          break;
+
+        const width = rightEdge.left - leftEdge.left;
+        if (width >= (view.defaultCharacterWidth || 10) * 0.5) {
+          return { pos: probe - 1, assoc: -1 };
+        }
+      }
+
+      return null;
+    };
+
+    const handleRight = (view: EditorView): boolean => {
+      if (plugin.settings.customCursorStyle !== "block") return false;
+
+      // Multi-cursor: if more than one cursor exists (including multiple collapsed
+      // cursors from Alt+Click), skip all wrap-correction logic entirely so that
+      // all cursors receive identical CM6-native movement.
+      if (view.state.selection.ranges.length > 1) return false;
+
+      const sel = view.state.selection.main;
+      // Return false when selection is non-empty: Shift+Arrow creates a selection,
+      // which is CM6's default behavior. We intentionally let CM6 extend the selection
+      // rather than trying to apply our wrap-correction logic to it.
+
+      const pos = sel.head;
+      clearHiddenBoundaryRenderState();
+
+      if (plugin.blockWrapState && plugin.blockWrapState.logicalPos === pos) {
+        plugin.blockWrapState = null;
+        return false;
+      }
+
+      if (sel.assoc !== 1 && isSoftWrap(view, pos)) {
+        plugin.blockWrapState = { logicalPos: pos, showPos: pos, assoc: 1 };
+        pendingDownFromWrapPos = pos;
+        view.dispatch({ selection: EditorSelection.cursor(pos, 1) });
+        return true;
+      }
+
+      plugin.blockWrapState = null;
+      return false;
+    };
+
+    const handleLeft = (view: EditorView): boolean => {
+      if (plugin.settings.customCursorStyle !== "block") return false;
+      // Clear state on any leftward movement (selection or not): we've left the
+      // wrap boundary context, so any pending wrap-correction is no longer relevant.
+
+      plugin.blockWrapState = null;
+      pendingDownFromWrapPos = null;
+      clearHiddenBoundaryRenderState();
+      return false;
+    };
+
+    const handleHome = (view: EditorView): boolean => {
+      if (plugin.settings.customCursorStyle !== "block") return false;
+      if (view.state.selection.ranges.length > 1) return false;
+
+      const sel = view.state.selection.main;
+      if (!sel.empty) return false;
+
+      debugNav("handleHome", {
+        pos: sel.head,
+        assoc: sel.assoc,
+        blockWrapState: plugin.blockWrapState,
+      });
+
+      plugin.blockWrapState = null;
+      pendingDownFromWrapPos = null;
+      plugin.lastKey = "Home";
+      clearHiddenBoundaryRenderState();
+      return false;
+    };
+
+    const handleDown = (view: EditorView): boolean => {
+      if (plugin.settings.customCursorStyle !== "block") return false;
+
+      // Multi-cursor: skip wrap-correction so all cursors move identically via CM6.
+      if (view.state.selection.ranges.length > 1) return false;
+
+      const sel = view.state.selection.main;
+      if (!sel.empty) return false;
+
+      const pos = sel.head;
+
+      const wrapStateForPos =
+        plugin.blockWrapState &&
+        plugin.blockWrapState.logicalPos === pos &&
+        plugin.blockWrapState.assoc === 1
+          ? plugin.blockWrapState
+          : null;
+
+      const allowWrappedDown =
+        !!wrapStateForPos || pendingDownFromWrapPos === pos;
+
+      debugNav("handleDown", {
+        pos,
+        assoc: sel.assoc,
+        wrapStateForPos,
+        pendingDownFromWrapPos,
+        allowWrappedDown,
+      });
+
+      if (!allowWrappedDown) {
+        clearHiddenBoundaryRenderState();
+        return false;
+      }
+
+      const target = findStartOfNextVisualLineFromWrap(view, pos);
+      pendingDownFromWrapPos = null;
+      debugNav("handleDown:target", {
+        fromPos: pos,
+        target,
+        blockWrapStateBefore: plugin.blockWrapState,
+      });
+
+      if (!target) {
+        plugin.blockWrapState = null;
+        clearHiddenBoundaryRenderState();
+        return false;
+      }
+
+      // Set plugin.blockWrapState for the target position so the renderer shows
+      // the cursor at the start of the continuation line (assoc=1),
+      // just like handleRight() does.
+      plugin.blockWrapState = {
+        logicalPos: target.pos,
+        showPos: target.pos,
+        assoc: 1,
+      };
+      clearHiddenBoundaryRenderState();
+      view.dispatch({
+        selection: EditorSelection.cursor(target.pos, 1),
+        scrollIntoView: true,
+      });
+      return true;
+    };
+
+    const handleUp = (view: EditorView): boolean => {
+      if (plugin.settings.customCursorStyle !== "block") return false;
+
+      // Multi-cursor: skip wrap-correction so all cursors move identically via CM6.
+      if (view.state.selection.ranges.length > 1) return false;
+
+      const sel = view.state.selection.main;
+      if (!sel.empty) return false;
+
+      const pos = sel.head;
+
+      // CASE 1: Cursor is at a known wrap boundary (plugin.blockWrapState active,
+      // visually at the start of a continuation line).  Compute the target
+      // ourselves — symmetric to handleDown's findStartOfNextVisualLineFromWrap.
+      if (
+        plugin.blockWrapState &&
+        plugin.blockWrapState.logicalPos === pos &&
+        plugin.blockWrapState.assoc === 1
+      ) {
+        const target = findStartOfPreviousVisualLineFromWrap(view, pos);
+        debugNav("handleUp:wrapped", {
+          pos,
+          assoc: sel.assoc,
+          blockWrapState: plugin.blockWrapState,
+          target,
+        });
+
+        if (!target) {
+          plugin.blockWrapState = null;
+          clearHiddenBoundaryRenderState();
+          return false; // top of document — let CM6 handle
+        }
+
+        if (target.isSoftWrap) {
+          plugin.blockWrapState = {
+            logicalPos: target.pos,
+            showPos: target.pos,
+            assoc: 1,
+          };
+          pendingDownFromWrapPos = target.pos;
+        } else {
+          plugin.blockWrapState = null;
+          pendingDownFromWrapPos = null;
+          clearHiddenBoundaryRenderState();
+        }
+
+        // Tag with 'visible-cursor.wrap-correction' so navCorrection's early-exit
+        // guard skips this transaction and does not undo the CASE1 movement.
+        view.dispatch({
+          selection: EditorSelection.cursor(target.pos, 1),
+          scrollIntoView: true,
+          annotations: Transaction.userEvent.of(
+            "visible-cursor.wrap-correction",
+          ),
+        });
+        return true;
+      }
+
+      // CASE 2: Cursor NOT at a known wrap boundary.
+      // Let CM6 handle the movement; navCorrection fixes assoc if needed.
+      debugNav("handleUp:passthrough", {
+        pos,
+        assoc: sel.assoc,
+        blockWrapState: plugin.blockWrapState,
+        pendingDownFromWrapPos,
+      });
+      return false;
+    };
+
+    const navCorrection = EditorView.updateListener.of((update: ViewUpdate) => {
+      if (!update.selectionSet && !update.docChanged) return;
+
+      // Explicit re-entrancy guard: every corrective dispatch below is tagged with
+      // 'visible-cursor.wrap-correction'. When navCorrection is re-triggered by one
+      // of those dispatches, bail immediately rather than relying on assoc arithmetic
+      // to implicitly prevent re-dispatching. This makes the loop-breaking contract
+      // visible and robust against future edits.
+      if (
+        update.transactions.some((t) =>
+          t.isUserEvent("visible-cursor.wrap-correction"),
+        )
+      )
+        return;
+
+      const sel = update.state.selection.main;
+      const oldSel = update.startState.selection.main;
+      const pos = sel.head;
+
+      debugNav("navCorrection:start", {
+        selectionSet: update.selectionSet,
+        docChanged: update.docChanged,
+        oldHead: oldSel.head,
+        oldAssoc: oldSel.assoc,
+        newHead: sel.head,
+        newAssoc: sel.assoc,
+        lastKey: plugin.lastKey,
+        blockWrapState: plugin.blockWrapState,
+        transactions: update.transactions.map((t) => ({
+          home: t.isUserEvent("emacs.moveToStart"),
+          end: t.isUserEvent("emacs.moveToEnd"),
+          pointer: t.isUserEvent("select.pointer"),
+          wrapCorrection: t.isUserEvent("visible-cursor.wrap-correction"),
+        })),
+      });
+
+      // Multi-cursor: if more than one cursor exists (including multiple collapsed
+      // cursors from Alt+Click), clear any pending wrap state and skip all corrective
+      // dispatches so that every cursor receives identical CM6-native movement.
+      if (update.state.selection.ranges.length > 1) {
+        plugin.blockWrapState = null;
+        pendingDownFromWrapPos = null;
+        clearHiddenBoundaryRenderState();
+        return;
+      }
+
+      const oldWrapState = plugin.blockWrapState;
+
+      // Note: When user presses Shift+Arrow, handlers fall through to CM6
+      // default behavior, but navCorrection may dispatch new transactions based on
+      // plugin.blockWrapState without checking if the selection is intentional."
+      //
+      // This is correct behavior. When the user creates a selection (Shift+Arrow),
+      // the selection IS intentional — it's standard text selection. The wrap-correction
+      // state (blockWrapState: plugin.blockWrapState, pendingDownFromWrapPos) is specifically for single-cursor
+      // navigation through wrapped lines. A selection is a different operation: it selects
+      // text, not navigates cursor position. Clearing the state here prevents wrap-correction
+      // logic from accidentally affecting text selection ranges.
+      //
+      // Additionally, the early-exit below ensures navCorrection doesn't dispatch any
+      // corrective transactions when sel.empty is false (i.e., there's a selection).
+      if (plugin.blockWrapState !== null) {
+        if (
+          update.docChanged ||
+          !sel.empty ||
+          sel.head !== plugin.blockWrapState.logicalPos
+        ) {
+          plugin.blockWrapState = null;
+        }
+      }
+
+      if (plugin.hiddenBoundaryRenderState !== null) {
+        if (
+          update.docChanged ||
+          !sel.empty ||
+          sel.head !== plugin.hiddenBoundaryRenderState.logicalPos
+        ) {
+          clearHiddenBoundaryRenderState();
+        }
+      }
+
+      if (pendingDownFromWrapPos !== null) {
+        if (update.docChanged || !sel.empty) {
+          pendingDownFromWrapPos = null;
+        }
+      }
+
+      if (!update.selectionSet || update.docChanged) return;
+      if (plugin.settings.customCursorStyle !== "block") return;
+      // EARLY EXIT: When selection is non-empty (e.g., Shift+Arrow), do not apply
+      // any wrap-correction transactions. The user is selecting text, not navigating.
+      if (!sel.empty) return;
+
+      if (update.transactions.some((t) => t.isUserEvent("select.pointer")))
+        return;
+      if (update.transactions.some((t) => t.isUserEvent("emacs.moveToEnd")))
+        return;
+
+      if (
+        Math.abs(pos - oldSel.head) > 1 &&
+        oldSel.head > pos &&
+        oldSel.assoc >= 0 &&
+        sel.assoc === 0
+      ) {
+        const renderTarget = findNextRenderableCell(update.view, pos);
+        if (renderTarget) {
+          plugin.hiddenBoundaryRenderState = {
+            logicalPos: pos,
+            showPos: renderTarget.pos,
+            assoc: renderTarget.assoc,
+          };
+          debugNav("navCorrection:hidden-boundary-render", {
+            oldHead: oldSel.head,
+            newHead: pos,
+            oldAssoc: oldSel.assoc,
+            newAssoc: sel.assoc,
+            renderTarget,
+          });
+        } else {
+          clearHiddenBoundaryRenderState();
+        }
+      }
+
+      // 1. Handle moving FORWARD by 1 char from a wrap boundary (e.g. Emacs forward char after End key)
+      if (pos - oldSel.head === 1) {
+        if (isSoftWrap(update.view, pos)) {
+          plugin.blockWrapState = { logicalPos: pos, showPos: pos, assoc: 1 };
+          pendingDownFromWrapPos = pos;
+          update.view.dispatch({
+            selection: EditorSelection.cursor(pos, 1),
+            annotations: Transaction.userEvent.of(
+              "visible-cursor.wrap-correction",
+            ),
+          });
+          return;
+        }
+        if (isSoftWrap(update.view, oldSel.head) && oldSel.assoc === -1) {
+          plugin.blockWrapState = {
+            logicalPos: oldSel.head,
+            showPos: oldSel.head,
+            assoc: 1,
+          };
+          pendingDownFromWrapPos = oldSel.head;
+          update.view.dispatch({
+            selection: EditorSelection.cursor(oldSel.head, 1),
+            annotations: Transaction.userEvent.of(
+              "visible-cursor.wrap-correction",
+            ),
+          });
+          return;
+        }
+      }
+
+      // 1b. Handle moving BACKWARD by 1 char onto a wrap boundary
+      if (
+        pos - oldSel.head === -1 &&
+        isSoftWrap(update.view, pos) &&
+        sel.assoc !== 1
+      ) {
+        plugin.blockWrapState = { logicalPos: pos, showPos: pos, assoc: 1 };
+        pendingDownFromWrapPos = pos;
+        update.view.dispatch({
+          selection: EditorSelection.cursor(pos, 1),
+          annotations: Transaction.userEvent.of(
+            "visible-cursor.wrap-correction",
+          ),
+        });
+        return;
+      }
+
+      // 2. Generalized vertical movement correction
+      if (pos !== oldSel.head && Math.abs(pos - oldSel.head) > 1) {
+        // Consume lastKey immediately: it is a one-shot signal valid only for the
+        // single navCorrection cycle that follows the keydown that set it.
+        // Consuming here prevents stale 'End'/'Home' values from suppressing
+        // wrap corrections in later, unrelated navigation events (e.g. after the
+        // editor loses and regains focus, or after keydowns in other editor panes).
+        const consumedKey = plugin.lastKey;
+        plugin.lastKey = "";
+        debugNav("navCorrection:largeMove", {
+          oldHead: oldSel.head,
+          newHead: pos,
+          consumedKey,
+        });
+        // If the user pressed End or Home, do NOT apply vertical corrections
+        // because they are horizontal movements that can look like vertical ones
+        if (consumedKey === "End" || consumedKey === "Home") {
+          debugNav("navCorrection:skip-horizontal-key", {
+            consumedKey,
+            oldHead: oldSel.head,
+            newHead: pos,
+          });
+          return;
+        }
+
+        // Also ignore emacs.moveToEnd and emacs.moveToStart which are horizontal
+        if (
+          update.transactions.some(
+            (t) =>
+              t.isUserEvent("emacs.moveToEnd") ||
+              t.isUserEvent("emacs.moveToStart"),
+          )
+        ) {
+          debugNav("navCorrection:skip-emacs-move", {
+            oldHead: oldSel.head,
+            newHead: pos,
+          });
+          return;
+        }
+
+        // Determine the actual visual top coordinates at the old and new positions.
+        // Use the assoc from blockWrapState when the old position was a known wrap
+        // boundary (assoc: 1), otherwise use sel.assoc/-1 as normal.
+        const oldAssoc =
+          oldWrapState !== null && oldSel.head === oldWrapState.logicalPos
+            ? 1
+            : oldSel.assoc || -1;
+        const oldCoords = update.view.coordsAtPos(
+          oldSel.head,
+          oldAssoc as 1 | -1,
+        );
+        const newCoords = update.view.coordsAtPos(pos, sel.assoc || -1);
+
+        if (oldCoords && newCoords) {
+          const dy = newCoords.top - oldCoords.top;
+          debugNav("navCorrection:coords", {
+            oldHead: oldSel.head,
+            newHead: pos,
+            oldAssoc,
+            newAssoc: sel.assoc || -1,
+            oldCoords,
+            newCoords,
+            dy,
+          });
+
+          // Compute the actual height of the visual line at the OLD position by
+          // measuring the gap between the old coord top and the top of the next
+          // visual line (i.e. the bottom of the current line).
+          // This is more accurate than defaultLineHeight, which is a global average
+          // and breaks with mixed line spacing (headings, code blocks, etc.).
+          //
+          // Strategy: sample coordsAtPos at oldSel.head with assoc=-1 to land at
+          // the END of the previous visual segment (bottom of the old line), then
+          // read its .bottom as the "line bottom" reference. If that isn't
+          // available, fall back to defaultLineHeight.
+          const oldLineBottomRef = update.view.coordsAtPos(oldSel.head, -1);
+          const actualLineHeight = oldLineBottomRef
+            ? oldLineBottomRef.bottom - oldLineBottomRef.top
+            : update.view.defaultLineHeight;
+
+          // Use 50% of the actual line height as the "crossed a line boundary" threshold:
+          // any |dy| > 0.5 * lineHeight means the cursor is on a different visual line.
+          // Any |dy| between 0.5 and 1.5 * lineHeight means "exactly one line moved".
+          // Any |dy| > 1.5 * lineHeight means "moved more than one line".
+          const halfLine = actualLineHeight * 0.5;
+          const oneAndHalf = actualLineHeight * 1.5;
+
+          // 2a. If moved UP more than 1 line and landed on a wrap boundary, force assoc: 1.
+          // The old 1.5× threshold was relative to defaultLineHeight; now it is relative to
+          // the actual height of the line the cursor was on before moving.
+          if (
+            dy < -oneAndHalf &&
+            isSoftWrap(update.view, pos) &&
+            sel.assoc !== 1
+          ) {
+            plugin.blockWrapState = { logicalPos: pos, showPos: pos, assoc: 1 };
+            pendingDownFromWrapPos = pos;
+            update.view.dispatch({
+              selection: EditorSelection.cursor(pos, 1),
+              annotations: Transaction.userEvent.of(
+                "visible-cursor.wrap-correction",
+              ),
+            });
+            return;
+          }
+
+          // 2b/2c/2d: only applies when the old position was a known wrap boundary.
+          if (
+            oldWrapState !== null &&
+            oldSel.head === oldWrapState.logicalPos
+          ) {
+            // 2b. Moved exactly 1 line DOWN from a wrap boundary (e.g. Emacs next line).
+            if (dy > halfLine && dy < oneAndHalf) {
+              const target = findStartOfNextVisualLineFromWrap(
+                update.view,
+                oldSel.head,
+              );
+              if (target) {
+                plugin.blockWrapState = {
+                  logicalPos: target.pos,
+                  showPos: target.pos,
+                  assoc: 1,
+                };
+                pendingDownFromWrapPos = target.pos;
+                update.view.dispatch({
+                  selection: EditorSelection.cursor(target.pos, 1),
+                  scrollIntoView: true,
+                  annotations: Transaction.userEvent.of(
+                    "visible-cursor.wrap-correction",
+                  ),
+                });
+                return;
+              }
+            }
+
+            // 2c. Moved UP from a wrap boundary (e.g. Emacs previous line).
+            // We don't cap at 1.5× line height: when the wrap boundary is preceded
+            // by a short logical line (e.g. "Bob"), goUp can overshoot by 2+ visual
+            // lines. We always want exactly 1 visual line up from the wrap boundary.
+            if (dy < -halfLine) {
+              const target = findStartOfPreviousVisualLineFromWrap(
+                update.view,
+                oldSel.head,
+              );
+              if (target) {
+                if (target.isSoftWrap) {
+                  plugin.blockWrapState = {
+                    logicalPos: target.pos,
+                    showPos: target.pos,
+                    assoc: 1,
+                  };
+                  pendingDownFromWrapPos = target.pos;
+                }
+                update.view.dispatch({
+                  selection: EditorSelection.cursor(target.pos, 1),
+                  scrollIntoView: true,
+                  annotations: Transaction.userEvent.of(
+                    "visible-cursor.wrap-correction",
+                  ),
+                });
+                return;
+              }
+            }
+
+            // 2d. Cursor stayed on the SAME visual line (dy ≈ 0). This happens with
+            // Obsidian's goDown command (Emacs next line) when it uses logical columns
+            // and lands at the end of the same wrapped segment instead of the next one.
+            // Threshold: less than half a line height — robust against subpixel drift.
+            if (Math.abs(dy) < halfLine) {
+              const target = findStartOfNextVisualLineFromWrap(
+                update.view,
+                oldSel.head,
+              );
+              if (target) {
+                plugin.blockWrapState = {
+                  logicalPos: target.pos,
+                  showPos: target.pos,
+                  assoc: 1,
+                };
+                pendingDownFromWrapPos = target.pos;
+                update.view.dispatch({
+                  selection: EditorSelection.cursor(target.pos, 1),
+                  scrollIntoView: true,
+                  annotations: Transaction.userEvent.of(
+                    "visible-cursor.wrap-correction",
+                  ),
+                });
+                return;
+              }
+            }
+          }
+        }
+      }
+    });
+
+    return [
+      // Use highest precedence so this plugin's Home/End override runs before
+      // CodeMirror/Obsidian default keymaps for wrapped-line cursor motion.
+      // If the default binding handles them 1st, special visual-line behavior never runs.
+      Prec.highest(
+        keymap.of([
+          { key: "Home", run: handleHome },
+          { key: "ArrowRight", run: handleRight },
+          { key: "ArrowLeft", run: handleLeft },
+          { key: "ArrowDown", run: handleDown },
+          { key: "ArrowUp", run: handleUp },
+        ]),
+      ),
+      navCorrection,
+    ];
+  }
+
+  scheduleFlash(trigger: string, isMouseClick: boolean) {
+    if (isMouseClick) return;
+
+    const state: FlashState = {
+      isFenceActive: this.clickFenceActive,
+      isFlashActive: this.flashActive,
+      hasPendingFlash: !!this.pendingFlashTrigger,
+      lastViewChange: this.lastViewChange,
+      now: Date.now(),
+    };
+
+    if (!this.flashScheduler.canScheduleFlash(trigger, state)) return;
+
+    this.lastViewChange = state.now;
+    if (this.flashTimeout) {
+      clearTimeout(this.flashTimeout);
+    }
+
+    this.pendingFlashTrigger = trigger;
+    this.flashTimeout = this.flashScheduler.scheduleCallback(() => {
+      this.showFlash();
+      this.pendingFlashTrigger = null;
+    }, 50);
+  }
+
+  /**
+   * Retrieve the underlying CodeMirror 6 EditorView from an Obsidian MarkdownView.
+   *
+   * **Internal API dependency**: Obsidian wraps CM6 in its own Editor abstraction
+   * and does not expose EditorView through its public API. The `.cm` property is an
+   * internal implementation detail that the Obsidian community accesses via `as any`
+   * cast. This helper centralises that access so any future change (rename, removal)
+   * only requires updating a single location.
+   *
+   * Confirmed working: Obsidian 1.x / CM6.
+   */
+  private getCMView(markdownView: MarkdownView): EditorView | null {
+    if (!markdownView.editor) return null;
+    return ((markdownView.editor as any).cm as EditorView) ?? null;
+  }
+
+  showFlash() {
+    const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+    if (!view || !view.editor) return;
+
+    const editorView = this.getCMView(view);
+    if (!editorView) return;
+
+    if (this.scrollDebounceTimer) {
+      clearTimeout(this.scrollDebounceTimer);
+      this.scrollDebounceTimer = null;
+    }
+
+    if (this.settings.lineHighlightMode === "left") {
+      this.showLineFlash(editorView);
+    } else if (this.settings.lineHighlightMode === "centered") {
+      this.showCursorCenteredFlash(editorView);
+    } else if (this.settings.lineHighlightMode === "right") {
+      this.showLineFlashRightToLeft(editorView);
+    }
+
+    this.flashActive = true;
+    if (this.settings.customCursorMode === "flash") {
+      document.body.classList.add("visible-cursor-flash-active");
+    }
+
+    if (this.resetFlashTimeout) {
+      clearTimeout(this.resetFlashTimeout);
+    }
+
+    this.resetFlashTimeout = this.flashScheduler.scheduleReset(() => {
+      this.flashActive = false;
+      if (this.settings.customCursorMode === "flash") {
+        document.body.classList.remove("visible-cursor-flash-active");
+      }
+    }, this.settings.flashDuration);
+  }
+
+  /** Get cursor coords using selection.assoc for correct soft-wrap boundary handling */
+  private cursorCoords(
+    editorView: EditorView,
+  ): { top: number; bottom: number; left: number; right: number } | null {
+    const cursor = this.app.workspace.getActiveViewOfType(MarkdownView)?.editor;
+    if (!cursor) return null;
+    const pos = (cursor as any).posToOffset(cursor.getCursor());
+    const assoc = editorView.state.selection.main.assoc || -1;
+    return editorView.coordsAtPos(pos, assoc);
+  }
+
+  showLineFlash(editorView: EditorView) {
+    const coords = this.cursorCoords(editorView);
+    if (!coords) return;
+
+    const editorElement = editorView.contentDOM;
+    const editorRect = editorElement.getBoundingClientRect();
+    const lineHeight = editorView.defaultLineHeight;
+    const { color, opacity } = this.colorProvider.getColor(this.settings);
+    const rgb = this.colorProvider.resolveColorToRgb(color);
+    const fontSize = parseFloat(getComputedStyle(editorElement).fontSize) || 16;
+    const charWidth = fontSize * 0.6;
+    const highlightDistance = this.settings.flashSize * charWidth;
+    const highlightPercent = Math.min(
+      100,
+      (highlightDistance / editorRect.width) * 100,
+    );
+
+    const colorStop = `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${opacity})`;
+    const cssText = `
 			position: fixed;
 			left: ${editorRect.left}px;
 			top: ${coords.top}px;
@@ -1448,25 +1680,28 @@ export default class VisibleCursorPlugin extends Plugin {
 			z-index: 1;
 			animation: flash-line-fade ${this.settings.flashDuration}ms ease-out;
 		`;
-		this.flashRenderer.render('left', cssText, this.settings.flashDuration);
-	}
+    this.flashRenderer.render("left", cssText, this.settings.flashDuration);
+  }
 
-	showLineFlashRightToLeft(editorView: EditorView) {
-		const coords = this.cursorCoords(editorView);
-		if (!coords) return;
+  showLineFlashRightToLeft(editorView: EditorView) {
+    const coords = this.cursorCoords(editorView);
+    if (!coords) return;
 
-		const editorElement = editorView.contentDOM;
-		const editorRect = editorElement.getBoundingClientRect();
-		const lineHeight = editorView.defaultLineHeight;
-		const { color, opacity } = this.colorProvider.getColor(this.settings);
-		const rgb = this.colorProvider.resolveColorToRgb(color);
-		const fontSize = parseFloat(getComputedStyle(editorElement).fontSize) || 16;
-		const charWidth = fontSize * 0.6;
-		const highlightDistance = this.settings.flashSize * charWidth;
-		const highlightPercent = Math.min(100, (highlightDistance / editorRect.width) * 100);
+    const editorElement = editorView.contentDOM;
+    const editorRect = editorElement.getBoundingClientRect();
+    const lineHeight = editorView.defaultLineHeight;
+    const { color, opacity } = this.colorProvider.getColor(this.settings);
+    const rgb = this.colorProvider.resolveColorToRgb(color);
+    const fontSize = parseFloat(getComputedStyle(editorElement).fontSize) || 16;
+    const charWidth = fontSize * 0.6;
+    const highlightDistance = this.settings.flashSize * charWidth;
+    const highlightPercent = Math.min(
+      100,
+      (highlightDistance / editorRect.width) * 100,
+    );
 
-		const colorStop = `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${opacity})`;
-		const cssText = `
+    const colorStop = `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${opacity})`;
+    const cssText = `
 			position: fixed;
 			left: ${editorRect.left}px;
 			top: ${coords.top}px;
@@ -1482,32 +1717,32 @@ export default class VisibleCursorPlugin extends Plugin {
 			z-index: 1;
 			animation: flash-line-fade ${this.settings.flashDuration}ms ease-out;
 		`;
-		this.flashRenderer.render('right', cssText, this.settings.flashDuration);
-	}
+    this.flashRenderer.render("right", cssText, this.settings.flashDuration);
+  }
 
-	showCursorCenteredFlash(editorView: EditorView) {
-		const coords = this.cursorCoords(editorView);
-		if (!coords) return;
+  showCursorCenteredFlash(editorView: EditorView) {
+    const coords = this.cursorCoords(editorView);
+    if (!coords) return;
 
-		const editorElement = editorView.contentDOM;
-		const editorRect = editorElement.getBoundingClientRect();
-		const lineHeight = editorView.defaultLineHeight;
-		const cursorX = coords.left - editorRect.left;
-		const editorWidth = editorRect.width;
-		const cursorPercent = (cursorX / editorWidth) * 100;
-		const { color, opacity } = this.colorProvider.getColor(this.settings);
-		const rgb = this.colorProvider.resolveColorToRgb(color);
+    const editorElement = editorView.contentDOM;
+    const editorRect = editorElement.getBoundingClientRect();
+    const lineHeight = editorView.defaultLineHeight;
+    const cursorX = coords.left - editorRect.left;
+    const editorWidth = editorRect.width;
+    const cursorPercent = (cursorX / editorWidth) * 100;
+    const { color, opacity } = this.colorProvider.getColor(this.settings);
+    const rgb = this.colorProvider.resolveColorToRgb(color);
 
-		const peakOpacity = opacity;
-		const fadeOpacity = opacity * 0.75;
-		const fontSize = parseFloat(getComputedStyle(editorElement).fontSize) || 16;
-		const charWidth = fontSize * 0.6;
-		const spreadDistance = (this.settings.flashSize / 2) * charWidth;
-		const spreadPercent = (spreadDistance / editorRect.width) * 100;
-		const leftEdge = Math.max(0, cursorPercent - spreadPercent);
-		const rightEdge = Math.min(100, cursorPercent + spreadPercent);
+    const peakOpacity = opacity;
+    const fadeOpacity = opacity * 0.75;
+    const fontSize = parseFloat(getComputedStyle(editorElement).fontSize) || 16;
+    const charWidth = fontSize * 0.6;
+    const spreadDistance = (this.settings.flashSize / 2) * charWidth;
+    const spreadPercent = (spreadDistance / editorRect.width) * 100;
+    const leftEdge = Math.max(0, cursorPercent - spreadPercent);
+    const rightEdge = Math.min(100, cursorPercent + spreadPercent);
 
-		const cssText = `
+    const cssText = `
 			position: fixed;
 			left: ${editorRect.left}px;
 			top: ${coords.top}px;
@@ -1526,75 +1761,92 @@ export default class VisibleCursorPlugin extends Plugin {
 			z-index: 1;
 			animation: flash-line-fade ${this.settings.flashDuration}ms ease-out;
 		`;
-		this.flashRenderer.render('centered', cssText, this.settings.flashDuration);
-	}
+    this.flashRenderer.render("centered", cssText, this.settings.flashDuration);
+  }
 
-	updateCursorStyles(): void {
-		if (this.styleElement) {
-			this.styleElement.remove();
-			this.styleElement = null;
-		}
+  updateCursorStyles(): void {
+    if (this.styleElement) {
+      this.styleElement.remove();
+      this.styleElement = null;
+    }
 
-		const mode = this.settings.customCursorMode;
+    const mode = this.settings.customCursorMode;
 
-		this.styleElement = document.createElement('style');
-		this.styleElement.id = 'cursor-flash-dynamic-styles';
+    this.styleElement = document.createElement("style");
+    this.styleElement.id = "cursor-flash-dynamic-styles";
 
-		if (mode === 'off') {
-			document.head.appendChild(this.styleElement);
-			return;
-		}
+    if (mode === "off") {
+      document.head.appendChild(this.styleElement);
+      return;
+    }
 
-		// Hide native browser caret so it doesn't appear alongside our custom cursor.
-		// In 'flash' mode, only suppress the caret during active flash windows.
-		const caretScope = mode === 'flash'
-			? 'body.visible-cursor-flash-active:not(.visible-cursor-is-composing) .cm-editor.cm-focused .cm-content'
-			: 'body:not(.visible-cursor-is-composing) .cm-editor.cm-focused .cm-content';
+    // Hide native browser caret so it doesn't appear alongside our custom cursor.
+    // In 'flash' mode, only suppress the caret during active flash windows.
+    const caretScope =
+      mode === "flash"
+        ? "body.visible-cursor-flash-active:not(.visible-cursor-is-composing) .cm-editor.cm-focused .cm-content"
+        : "body:not(.visible-cursor-is-composing) .cm-editor.cm-focused .cm-content";
 
-		this.styleElement.textContent = `
+    this.styleElement.textContent = `
 ${caretScope} {
 	caret-color: transparent !important;
 }`;
-		document.head.appendChild(this.styleElement);
-	}
+    document.head.appendChild(this.styleElement);
+  }
 
-	refreshDecorations() {
-		this.updateCursorStyles();
-		this.app.workspace.iterateAllLeaves((leaf) => {
-			if (leaf.view instanceof MarkdownView) {
-				const editorView = this.getCMView(leaf.view);
-				if (editorView) {
-					editorView.dispatch({ selection: editorView.state.selection });
-				}
-			}
-		});
-	}
+  refreshDecorations() {
+    this.updateCursorStyles();
+    this.app.workspace.iterateAllLeaves((leaf) => {
+      if (leaf.view instanceof MarkdownView) {
+        const editorView = this.getCMView(leaf.view);
+        if (editorView) {
+          editorView.dispatch({ selection: editorView.state.selection });
+        }
+      }
+    });
+  }
 
-	async loadSettings() {
-		const raw = Object.assign({}, DEFAULT_SETTINGS, await this.loadData()) as Record<string, unknown>;
-		const migrated = migrateSettings(raw);
-		this.settings = raw as unknown as VisibleCursorPluginSettings;
-		if (migrated) {
-			await this.saveSettings();
-		}
-	}
+  async loadSettings() {
+    const raw = Object.assign(
+      {},
+      DEFAULT_SETTINGS,
+      await this.loadData(),
+    ) as Record<string, unknown>;
+    const migrated = migrateSettings(raw);
+    this.settings = raw as unknown as VisibleCursorPluginSettings;
+    if (migrated) {
+      await this.saveSettings();
+    }
+  }
 
-	async saveSettings() {
-		await this.saveData(this.settings);
-	}
+  async saveSettings() {
+    await this.saveData(this.settings);
+  }
 
-	onunload() {
-		if (this.styleElement) this.styleElement.remove();
-		document.body.classList.remove('visible-cursor-flash-active');
-		if (this.flashTimeout) clearTimeout(this.flashTimeout);
-		if (this.resetFlashTimeout) clearTimeout(this.resetFlashTimeout);
-		if (this.scrollDebounceTimer) clearTimeout(this.scrollDebounceTimer);
-		window.removeEventListener('pointerdown', this.boundStartFence, { capture: true });
-		window.removeEventListener('pointerup', this.boundEndFenceSoon, { capture: true });
-		window.removeEventListener('pointercancel', this.boundEndFenceSoon, { capture: true });
-		window.removeEventListener('click', this.boundClickEndFence, { capture: true });
-		window.removeEventListener('keydown', this.boundKeydown, { capture: true });
-		window.removeEventListener('compositionstart', this.boundCompositionStart, { capture: true });
-		window.removeEventListener('compositionend', this.boundCompositionEnd, { capture: true });
-	}
+  onunload() {
+    if (this.styleElement) this.styleElement.remove();
+    document.body.classList.remove("visible-cursor-flash-active");
+    if (this.flashTimeout) clearTimeout(this.flashTimeout);
+    if (this.resetFlashTimeout) clearTimeout(this.resetFlashTimeout);
+    if (this.scrollDebounceTimer) clearTimeout(this.scrollDebounceTimer);
+    window.removeEventListener("pointerdown", this.boundStartFence, {
+      capture: true,
+    });
+    window.removeEventListener("pointerup", this.boundEndFenceSoon, {
+      capture: true,
+    });
+    window.removeEventListener("pointercancel", this.boundEndFenceSoon, {
+      capture: true,
+    });
+    window.removeEventListener("click", this.boundClickEndFence, {
+      capture: true,
+    });
+    window.removeEventListener("keydown", this.boundKeydown, { capture: true });
+    window.removeEventListener("compositionstart", this.boundCompositionStart, {
+      capture: true,
+    });
+    window.removeEventListener("compositionend", this.boundCompositionEnd, {
+      capture: true,
+    });
+  }
 }
