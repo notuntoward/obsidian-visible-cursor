@@ -69,8 +69,8 @@ export class FlashScheduler {
    * @param delayMs - Milliseconds to wait
    * @returns Timeout ID for cancellation
    */
-  scheduleCallback(callback: () => void, delayMs: number): NodeJS.Timeout {
-    return setTimeout(callback, delayMs);
+  scheduleCallback(callback: () => void, delayMs: number): number {
+    return window.setTimeout(callback, delayMs);
   }
 
   /**
@@ -81,7 +81,7 @@ export class FlashScheduler {
    * @param delayMs - Milliseconds to keep flash visible
    * @returns Timeout ID for cancellation
    */
-  scheduleReset(callback: () => void, delayMs: number): NodeJS.Timeout {
-    return setTimeout(callback, delayMs);
+  scheduleReset(callback: () => void, delayMs: number): number {
+    return window.setTimeout(callback, delayMs);
   }
 }

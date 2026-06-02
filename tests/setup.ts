@@ -50,9 +50,12 @@ if (typeof global !== 'undefined' && !global.window) {
 	(global as any).window = {
 		addEventListener: () => {},
 		removeEventListener: () => {},
+		setTimeout: (callback: (...args: any[]) => void, ms: number, ...args: any[]) => setTimeout(callback, ms, ...args),
+		clearTimeout: (id: any) => clearTimeout(id),
 		requestAnimationFrame: (callback: (time: number) => void) => {
 			setTimeout(() => callback(performance.now()), 0);
-		}
+		},
+		cancelAnimationFrame: (id: any) => clearTimeout(id)
 	};
 }
 

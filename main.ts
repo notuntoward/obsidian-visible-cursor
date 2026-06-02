@@ -574,9 +574,9 @@ export default class VisibleCursorPlugin extends Plugin {
   debugCursorDiagnostics: boolean = true;
 
   private lastViewChange: number = 0;
-  private flashTimeout: NodeJS.Timeout | null = null;
-  private resetFlashTimeout: NodeJS.Timeout | null = null;
-  private scrollDebounceTimer: NodeJS.Timeout | null = null;
+  private flashTimeout: number | null = null;
+  private resetFlashTimeout: number | null = null;
+  private scrollDebounceTimer: number | null = null;
   private lastScrollPosition: number = 0;
   flashActive: boolean = false; // public so CustomCursorViewPlugin can read it
   private clickFenceActive: boolean = false;
@@ -621,16 +621,16 @@ export default class VisibleCursorPlugin extends Plugin {
       ...this.createBlockCursorNavFilter(),
     ]);
 
-    requestAnimationFrame(() =>
-      requestAnimationFrame(() => this.updateCursorStyles()),
+    window.requestAnimationFrame(() =>
+      window.requestAnimationFrame(() => this.updateCursorStyles()),
     );
 
     this.registerEvent(
       this.app.workspace.on("active-leaf-change", () => {
-        requestAnimationFrame(() => this.updateCursorStyles());
+        window.requestAnimationFrame(() => this.updateCursorStyles());
         if (this.settings.flashOnWindowChanges) {
-          requestAnimationFrame(() =>
-            requestAnimationFrame(() =>
+          window.requestAnimationFrame(() =>
+            window.requestAnimationFrame(() =>
               this.scheduleFlash("view-change", false),
             ),
           );
@@ -641,8 +641,8 @@ export default class VisibleCursorPlugin extends Plugin {
     this.registerEvent(
       this.app.workspace.on("layout-change", () => {
         if (this.settings.flashOnWindowChanges) {
-          requestAnimationFrame(() =>
-            requestAnimationFrame(() =>
+          window.requestAnimationFrame(() =>
+            window.requestAnimationFrame(() =>
               this.scheduleFlash("layout-change", false),
             ),
           );
@@ -654,7 +654,7 @@ export default class VisibleCursorPlugin extends Plugin {
       this.app.workspace.on("css-change", () => {
         this.app.workspace.updateOptions();
         this.colorProvider.clearCache();
-        requestAnimationFrame(() => this.updateCursorStyles());
+        window.requestAnimationFrame(() => this.updateCursorStyles());
       }),
     );
 
@@ -663,7 +663,7 @@ export default class VisibleCursorPlugin extends Plugin {
       this.clickFenceActive = true;
     };
     this.boundEndFenceSoon = () => {
-      setTimeout(() => {
+      window.setTimeout(() => {
         this.clickFenceActive = false;
       }, 400);
     };
@@ -721,19 +721,19 @@ export default class VisibleCursorPlugin extends Plugin {
         if (plugin.flashActive || now < plugin.scrollFlashSuppressedUntil) {
           plugin.scrollFlashSuppressedUntil = now + 300;
           if (plugin.scrollDebounceTimer) {
-            clearTimeout(plugin.scrollDebounceTimer);
+            window.clearTimeout(plugin.scrollDebounceTimer);
             plugin.scrollDebounceTimer = null;
           }
           return false;
         }
 
         if (plugin.scrollDebounceTimer) {
-          clearTimeout(plugin.scrollDebounceTimer);
+          window.clearTimeout(plugin.scrollDebounceTimer);
         }
 
         const debounceTime =
           plugin.flashScheduler.getScrollDebounceTime(scrollDelta);
-        plugin.scrollDebounceTimer = setTimeout(() => {
+        plugin.scrollDebounceTimer = window.setTimeout(() => {
           plugin.scheduleFlash("scroll", false);
           plugin.scrollDebounceTimer = null;
         }, debounceTime);
@@ -1572,7 +1572,7 @@ export default class VisibleCursorPlugin extends Plugin {
 
     this.lastViewChange = state.now;
     if (this.flashTimeout) {
-      clearTimeout(this.flashTimeout);
+      window.clearTimeout(this.flashTimeout);
     }
 
     this.pendingFlashTrigger = trigger;
@@ -1606,7 +1606,7 @@ export default class VisibleCursorPlugin extends Plugin {
     if (!editorView) return;
 
     if (this.scrollDebounceTimer) {
-      clearTimeout(this.scrollDebounceTimer);
+      window.clearTimeout(this.scrollDebounceTimer);
       this.scrollDebounceTimer = null;
     }
 
@@ -1624,7 +1624,7 @@ export default class VisibleCursorPlugin extends Plugin {
     }
 
     if (this.resetFlashTimeout) {
-      clearTimeout(this.resetFlashTimeout);
+      window.clearTimeout(this.resetFlashTimeout);
     }
 
     this.resetFlashTimeout = this.flashScheduler.scheduleReset(() => {
@@ -1826,9 +1826,9 @@ ${caretScope} {
   onunload() {
     if (this.styleElement) this.styleElement.remove();
     document.body.classList.remove("visible-cursor-flash-active");
-    if (this.flashTimeout) clearTimeout(this.flashTimeout);
-    if (this.resetFlashTimeout) clearTimeout(this.resetFlashTimeout);
-    if (this.scrollDebounceTimer) clearTimeout(this.scrollDebounceTimer);
+    if (this.flashTimeout) window.clearTimeout(this.flashTimeout);
+    if (this.resetFlashTimeout) window.clearTimeout(this.resetFlashTimeout);
+    if (this.scrollDebounceTimer) window.clearTimeout(this.scrollDebounceTimer);
     window.removeEventListener("pointerdown", this.boundStartFence, {
       capture: true,
     });

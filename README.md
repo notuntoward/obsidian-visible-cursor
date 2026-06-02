@@ -1,5 +1,10 @@
 # Visible Cursor
 
+[![Build](https://github.com/notuntoward/obsidian-visible-cursor/actions/workflows/build.yml/badge.svg)](https://github.com/notuntoward/obsidian-visible-cursor/actions/workflows/build.yml)
+[![CodeQL](https://github.com/notuntoward/obsidian-visible-cursor/actions/workflows/codeql.yml/badge.svg)](https://github.com/notuntoward/obsidian-visible-cursor/actions/workflows/codeql.yml)
+[![OpenSSF Scorecard](https://github.com/notuntoward/obsidian-visible-cursor/actions/workflows/scorecard.yml/badge.svg)](https://github.com/notuntoward/obsidian-visible-cursor/actions/workflows/scorecard.yml)
+[![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/notuntoward/obsidian-visible-cursor/badge)](https://securityscorecards.dev/viewer/?uri=github.com/notuntoward/obsidian-visible-cursor)
+
 Never lose your cursor again! Options for more visible cursors plus configurable cursor flashes after movement.
 
 > **Note:** Screenshots and demo GIF will be added before the community plugin submission. See [`screenshots/README.md`](screenshots/README.md) for capture instructions.

@@ -18,7 +18,7 @@ export class FlashRenderer {
     element.style.cssText = cssText;
 
     document.body.appendChild(element);
-    setTimeout(() => {
+    window.setTimeout(() => {
       element.remove();
     }, duration);
   }
