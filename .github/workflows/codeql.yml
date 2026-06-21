@@ -13,14 +13,15 @@ on:
   workflow_dispatch:
 
 permissions:
-  actions: read
   contents: read
-  security-events: write
 
 jobs:
   analyze:
     name: Analyze JavaScript/TypeScript
     runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      security-events: write
 
     steps:
       - name: Checkout
