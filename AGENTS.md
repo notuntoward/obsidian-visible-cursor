@@ -88,54 +88,14 @@ The `../main` import in `tests/homeNavigation.test.ts` resolves to `main.ts`
 via the Vitest alias in `vitest.config.ts`.  Do NOT change this import to
 `../main.ts` (breaks `tsc`) or `../main.js` (breaks Vitest aliasing).
 
-## Critical: Agent Manager worktree builds are invisible to the vault
-symlink
+## Note: worktree builds (Agent Manager) and the vault junction
 
-When Kilo spins up Agent Manager sessions in `worktree` mode, the new
-worktree lives under `.kilo/worktrees/<name>/` as a separate git
-worktree with its own `main.js`. The Obsidian vault's symlink at
-`.obsidian/plugins/visible-cursor` points to the main checkout
-(`~/repos/obsidian-visible-cursor/`), so Obsidian continues to load the
-old `main.js` after a worktree build.
+Visible Cursor also ships a pre-built `main.js` that the vault loads via a
+junction at `<vault>/.obsidian/plugins/visible-cursor` pointing to the main
+checkout, so builds inside a git worktree are not automatically visible.
 
-The same class of bug happens with any other git worktree outside the
-main checkout — the build happened in a different directory, so the
-canonical `main.js` is stale.
-
-### How to avoid confusing the user when asking to test in Obsidian
-
-1. **Print the exact filesystem path of the built `main.js`** before
-   every "reload the plugin in Obsidian" instruction, so the user can
-   verify Obsidian is loading what they expect. Example:
-
-   > Reload Visible Cursor in Obsidian. The fresh `main.js` is at:
-   > `C:\Users\scott\repos\obsidian-visible-cursor\.kilo\worktrees\foo\main.js`
-
-2. **Unit-test and browser-test from the worktree as normal** (Vitest
-   and Playwright resolve to `main.ts`; they are unaffected by the
-   vault symlink). Reserve **real-Obsidian testing** for after one of:
-   - **Agent Manager Apply** lands worktree changes in the main repo,
-     followed by `npm run build` in the main checkout, OR
-   - **Re-linking the vault symlink** to the worktree:
-     ```powershell
-     Remove-Item -LiteralPath "$env:USERPROFILE\...\.obsidian\plugins\visible-cursor"
-     New-Item -ItemType Junction `
-              -Path "$env:USERPROFILE\...\.obsidian\plugins\visible-cursor" `
-              -Target "$env:USERPROFILE\repos\obsidian-visible-cursor\.kilo\worktrees\<name>"
-     ```
-
-3. **Prefer `local` mode for Agent Manager fan-outs** when isolation
-   is not required. Local-mode sessions share the checkout directory,
-   so the existing vault symlink always resolves to fresh changes.
-   Use `worktree` mode only when session isolation is necessary
-   (conflicting edits, multi-branch experiments).
-
-### What NOT to do
-
-- Do NOT ask the user to "reload the plugin in Obsidian" after a
-  worktree build without first confirming what path Obsidian is
-  actually loading from.
-- Do NOT silently build in a worktree and assume the vault picked up
-  the change.
-- Do NOT assume `npm run build` in the worktree automatically updated
-  `main.js` at the canonical path visible to the vault.
+For the workflow and the shared relink script, see the global rule in
+`~/.config/kilo/AGENTS.md` under *When building an Obsidian plugin inside a
+git worktree*.  The script at `$env:USERPROFILE\.config\kilo\tools\obsidian-relink.ps1`
+re-points the vault junction in one command; do not ask the user to do
+the delete/re-create manually.
