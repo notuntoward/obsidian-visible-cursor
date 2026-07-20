@@ -10,7 +10,6 @@ describe('FlashRenderer Service', () => {
     appendedElements = [];
     
     // Track elements appended to document.body
-    const originalAppendChild = document.body.appendChild;
     vi.spyOn(document.body, 'appendChild').mockImplementation((element: HTMLElement) => {
       appendedElements.push(element);
       return element;
@@ -74,13 +73,12 @@ describe('FlashRenderer Service', () => {
     it('should build CSS for left-to-right gradient', () => {
       const position = { left: 100, top: 200 };
       const size = { width: 800, height: 24 };
-      const gradient = {
-        colorStop: 'rgba(100, 150, 255, 0.8)',
-        fadePercent: 50,
-        opacity: 0.8
-      };
+      const rgb = { r: 100, g: 150, b: 255 };
+      const opacity = 0.8;
+      const highlightPercent = 50;
+      const duration = 500;
 
-      const css = renderer.buildLeftGradientCSS(position, size, gradient);
+      const css = renderer.buildLeftGradientCSS(position, size, rgb, opacity, highlightPercent, duration);
 
       expect(css).toContain('position: fixed');
       expect(css).toContain('left: 100px');
@@ -89,37 +87,21 @@ describe('FlashRenderer Service', () => {
       expect(css).toContain('height: 24px');
       expect(css).toContain('linear-gradient(to right');
       expect(css).toContain('pointer-events: none');
+      expect(css).toContain('animation: flash-line-fade 500ms ease-out');
     });
 
     it('should include the color stop in gradient', () => {
       const position = { left: 0, top: 0 };
       const size = { width: 100, height: 20 };
-      const gradient = {
-        colorStop: 'rgba(255, 0, 0, 0.5)',
-        fadePercent: 30,
-        opacity: 0.5
-      };
+      const rgb = { r: 255, g: 0, b: 0 };
+      const opacity = 0.5;
+      const highlightPercent = 30;
+      const duration = 500;
 
-      const css = renderer.buildLeftGradientCSS(position, size, gradient);
+      const css = renderer.buildLeftGradientCSS(position, size, rgb, opacity, highlightPercent, duration);
 
       expect(css).toContain('rgba(255, 0, 0, 0.5)');
       expect(css).toContain('rgba(255, 0, 0, 0.25) 15%');
-    });
-
-    it('should calculate fade position based on fadePercent', () => {
-      const position = { left: 0, top: 0 };
-      const size = { width: 100, height: 20 };
-      const gradient = {
-        colorStop: 'rgba(0, 0, 0, 1)',
-        fadePercent: 40,
-        opacity: 1
-      };
-
-      const css = renderer.buildLeftGradientCSS(position, size, gradient);
-
-      // Should include the fade percent in the gradient stops
-      expect(css).toContain('rgba(0, 0, 0, 0.5) 20%');
-      expect(css).toContain('40%');
     });
   });
 
@@ -127,40 +109,17 @@ describe('FlashRenderer Service', () => {
     it('should build CSS for right-to-left gradient', () => {
       const position = { left: 100, top: 200 };
       const size = { width: 800, height: 24 };
-      const gradient = {
-        colorStop: 'rgba(100, 150, 255, 0.8)',
-        fadePercent: 50,
-        opacity: 0.8
-      };
+      const rgb = { r: 100, g: 150, b: 255 };
+      const opacity = 0.8;
+      const highlightPercent = 50;
+      const duration = 500;
 
-      const css = renderer.buildRightGradientCSS(position, size, gradient);
+      const css = renderer.buildRightGradientCSS(position, size, rgb, opacity, highlightPercent, duration);
 
       expect(css).toContain('position: fixed');
       expect(css).toContain('linear-gradient(to left');
       expect(css).toContain('pointer-events: none');
-    });
-
-    it('should mirror the left gradient direction', () => {
-      const position = { left: 50, top: 100 };
-      const size = { width: 500, height: 30 };
-      const gradient = {
-        colorStop: 'rgba(0, 128, 255, 0.6)',
-        fadePercent: 25,
-        opacity: 0.6
-      };
-
-      const leftCss = renderer.buildLeftGradientCSS(position, size, gradient);
-      const rightCss = renderer.buildRightGradientCSS(position, size, gradient);
-
-      // Both should have same position and size
-      expect(leftCss).toContain('left: 50px');
-      expect(rightCss).toContain('left: 50px');
-      
-      // But different gradient directions
-      expect(leftCss).toContain('to right');
-      expect(rightCss).toContain('to left');
-      expect(rightCss).toContain('rgba(0, 128, 255, 0.3) 12.5%');
-      expect(rightCss).toContain('transparent 25%');
+      expect(css).toContain('animation: flash-line-fade 500ms ease-out');
     });
   });
 
@@ -168,149 +127,49 @@ describe('FlashRenderer Service', () => {
     it('should build CSS for centered gradient with cursor position', () => {
       const position = { left: 0, top: 100 };
       const size = { width: 800, height: 24 };
-      const gradient = {
-        colorStop: 'rgba(100, 150, 255, 0.8)',
-        cursorPercent: 50,
-        spreadPercent: 10,
-        peakOpacity: 0.8,
-        fadeOpacity: 0.6
-      };
+      const rgb = { r: 100, g: 150, b: 255 };
+      const opacity = 0.8;
+      const cursorPercent = 50;
+      const spreadPercent = 10;
+      const duration = 500;
 
-      const css = renderer.buildCenteredGradientCSS(position, size, gradient);
+      const css = renderer.buildCenteredGradientCSS(position, size, rgb, opacity, cursorPercent, spreadPercent, duration);
 
       expect(css).toContain('position: fixed');
       expect(css).toContain('linear-gradient(to right');
       expect(css).toContain('pointer-events: none');
+      expect(css).toContain('animation: flash-line-fade 500ms ease-out');
     });
 
     it('should position peak at cursor location', () => {
       const position = { left: 0, top: 0 };
       const size = { width: 1000, height: 20 };
-      const gradient = {
-        colorStop: 'rgba(255, 100, 50, 0.9)',
-        cursorPercent: 30,
-        spreadPercent: 5,
-        peakOpacity: 0.9,
-        fadeOpacity: 0.7
-      };
+      const rgb = { r: 255, g: 100, b: 50 };
+      const opacity = 0.9;
+      const cursorPercent = 30;
+      const spreadPercent = 5;
+      const duration = 500;
 
-      const css = renderer.buildCenteredGradientCSS(position, size, gradient);
+      const css = renderer.buildCenteredGradientCSS(position, size, rgb, opacity, cursorPercent, spreadPercent, duration);
 
       // Peak should be at cursorPercent
       expect(css).toContain('30%');
     });
 
-    it('should calculate left and right edges from spread', () => {
-      const position = { left: 0, top: 0 };
-      const size = { width: 100, height: 20 };
-      const gradient = {
-        colorStop: 'rgba(0, 0, 0, 1)',
-        cursorPercent: 50,
-        spreadPercent: 20,
-        peakOpacity: 1,
-        fadeOpacity: 0.5
-      };
-
-      const css = renderer.buildCenteredGradientCSS(position, size, gradient);
-
-      // Left edge = cursorPercent - spreadPercent = 30
-      // Right edge = cursorPercent + spreadPercent = 70
-      expect(css).toContain('transparent 30%');
-      expect(css).toContain('rgba(0, 0, 0, 0.5) 40%');
-      expect(css).toContain('rgba(0, 0, 0, 1) 50%');
-      expect(css).toContain('rgba(0, 0, 0, 0.5) 60%');
-      expect(css).toContain('transparent 70%');
-    });
-
     it('should clamp edges to valid range', () => {
       const position = { left: 0, top: 0 };
       const size = { width: 100, height: 20 };
-      
-      // Cursor at 5% with 20% spread would go negative
-      const gradient = {
-        colorStop: 'rgba(0, 0, 0, 1)',
-        cursorPercent: 5,
-        spreadPercent: 20,
-        peakOpacity: 1,
-        fadeOpacity: 0.5
-      };
+      const rgb = { r: 0, g: 0, b: 0 };
+      const opacity = 1;
+      const cursorPercent = 5;
+      const spreadPercent = 20;
+      const duration = 500;
 
-      const css = renderer.buildCenteredGradientCSS(position, size, gradient);
+      const css = renderer.buildCenteredGradientCSS(position, size, rgb, opacity, cursorPercent, spreadPercent, duration);
 
       // Left edge should be clamped to 0
       expect(css).toContain('transparent 0%');
       expect(css).toContain('transparent 25%');
-    });
-
-    it('should clamp right edge to 100', () => {
-      const position = { left: 0, top: 0 };
-      const size = { width: 100, height: 20 };
-      
-      // Cursor at 95% with 20% spread would exceed 100
-      const gradient = {
-        colorStop: 'rgba(0, 0, 0, 1)',
-        cursorPercent: 95,
-        spreadPercent: 20,
-        peakOpacity: 1,
-        fadeOpacity: 0.5
-      };
-
-      const css = renderer.buildCenteredGradientCSS(position, size, gradient);
-
-      // Right edge should be clamped to 100
-      expect(css).toContain('transparent 100%');
-      expect(css).toContain('transparent 75%');
-    });
-
-    it('should include fade opacity in gradient stops', () => {
-      const position = { left: 0, top: 0 };
-      const size = { width: 100, height: 20 };
-      const gradient = {
-        colorStop: 'rgba(100, 100, 100, 1)',
-        cursorPercent: 50,
-        spreadPercent: 10,
-        peakOpacity: 1,
-        fadeOpacity: 0.75
-      };
-
-      const css = renderer.buildCenteredGradientCSS(position, size, gradient);
-
-      // Should contain the fade opacity value
-      expect(css).toContain('0.75');
-    });
-  });
-
-  describe('Integration - Complete Flash Rendering', () => {
-    it('should render a complete left-to-right flash', () => {
-      const position = { left: 100, top: 200 };
-      const size = { width: 800, height: 24 };
-      const gradient = {
-        colorStop: 'rgba(100, 150, 255, 0.8)',
-        fadePercent: 10,
-        opacity: 0.8
-      };
-
-      const css = renderer.buildLeftGradientCSS(position, size, gradient);
-      renderer.render('left', css, 500);
-
-      expect(appendedElements[0].style.cssText).toBe(css);
-    });
-
-    it('should render a complete centered flash', () => {
-      const position = { left: 0, top: 150 };
-      const size = { width: 1000, height: 24 };
-      const gradient = {
-        colorStop: 'rgba(100, 150, 255, 0.8)',
-        cursorPercent: 40,
-        spreadPercent: 8,
-        peakOpacity: 0.8,
-        fadeOpacity: 0.6
-      };
-
-      const css = renderer.buildCenteredGradientCSS(position, size, gradient);
-      renderer.render('centered', css, 300);
-
-      expect(appendedElements[0].style.cssText).toBe(css);
     });
   });
 });

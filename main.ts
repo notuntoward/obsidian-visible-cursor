@@ -55,6 +55,9 @@ export class CustomCursorViewPlugin {
 
   destroy() {
     this.cursorLayer.remove();
+    if (this.view && this.view.contentDOM) {
+      this.view.contentDOM.classList.remove("visible-cursor-hide-caret");
+    }
     this.view = null as any;
     this.plugin = null as any;
   }
@@ -200,7 +203,7 @@ export class CustomCursorViewPlugin {
         if (mode === "flash" && !plugin.flashActive) return null;
         if (!view.hasFocus) return null;
         // During IME composition, fall back to standard Obsidian cursor behavior
-        if (plugin.isComposing) return null;
+        if (view.composing) return null;
 
         const sel = view.state.selection.main;
         const pos = sel.head;
@@ -492,9 +495,13 @@ export class CustomCursorViewPlugin {
       ) => {
         if (!measure) {
           cursorLayer.style.display = "none";
+          this.view.contentDOM.classList.remove("visible-cursor-hide-caret");
           return;
         }
         cursorLayer.style.display = "";
+
+        // Hide native browser caret
+        this.view.contentDOM.classList.add("visible-cursor-hide-caret");
 
         if (!this.cursorEl) {
           this.cursorEl = document.createElement("div");
@@ -569,7 +576,6 @@ interface HiddenBoundaryRenderState {
 
 export default class VisibleCursorPlugin extends Plugin {
   settings: VisibleCursorPluginSettings;
-  private styleElement: HTMLStyleElement | null = null;
   lastKey: string = "";
   debugCursorDiagnostics: boolean = true;
 
@@ -585,10 +591,6 @@ export default class VisibleCursorPlugin extends Plugin {
   private boundStartFence: () => void;
   private boundEndFenceSoon: () => void;
   private boundClickEndFence: () => void;
-  private boundKeydown: (e: KeyboardEvent) => void;
-  isComposing: boolean = false;
-  private boundCompositionStart: () => void;
-  private boundCompositionEnd: () => void;
 
   // Shared state for block cursor wrap navigation
   blockWrapState: BlockWrapState | null = null;
@@ -597,7 +599,7 @@ export default class VisibleCursorPlugin extends Plugin {
   // Services
   colorProvider: ColorProvider; // public so CustomCursorViewPlugin can read it
   private flashScheduler: FlashScheduler;
-  private flashRenderer: FlashRenderer;
+  flashRenderer: FlashRenderer;
 
   async onload() {
     await this.loadSettings();
@@ -621,13 +623,8 @@ export default class VisibleCursorPlugin extends Plugin {
       ...this.createBlockCursorNavFilter(),
     ]);
 
-    window.requestAnimationFrame(() =>
-      window.requestAnimationFrame(() => this.updateCursorStyles()),
-    );
-
     this.registerEvent(
       this.app.workspace.on("active-leaf-change", () => {
-        window.requestAnimationFrame(() => this.updateCursorStyles());
         if (this.settings.flashOnWindowChanges) {
           window.requestAnimationFrame(() =>
             window.requestAnimationFrame(() =>
@@ -654,7 +651,7 @@ export default class VisibleCursorPlugin extends Plugin {
       this.app.workspace.on("css-change", () => {
         this.app.workspace.updateOptions();
         this.colorProvider.clearCache();
-        window.requestAnimationFrame(() => this.updateCursorStyles());
+        window.requestAnimationFrame(() => this.refreshDecorations());
       }),
     );
 
@@ -670,19 +667,6 @@ export default class VisibleCursorPlugin extends Plugin {
     this.boundClickEndFence = () => {
       this.boundEndFenceSoon();
     };
-    this.boundKeydown = (e: KeyboardEvent) => {
-      this.lastKey = e.key;
-    };
-    this.boundCompositionStart = () => {
-      this.isComposing = true;
-      document.body.classList.add("visible-cursor-is-composing");
-      this.refreshDecorations();
-    };
-    this.boundCompositionEnd = () => {
-      this.isComposing = false;
-      document.body.classList.remove("visible-cursor-is-composing");
-      this.refreshDecorations();
-    };
     window.addEventListener("pointerdown", this.boundStartFence, {
       capture: true,
     });
@@ -695,26 +679,23 @@ export default class VisibleCursorPlugin extends Plugin {
     window.addEventListener("click", this.boundClickEndFence, {
       capture: true,
     });
-    window.addEventListener("keydown", this.boundKeydown, { capture: true });
-    window.addEventListener("compositionstart", this.boundCompositionStart, {
-      capture: true,
-    });
-    window.addEventListener("compositionend", this.boundCompositionEnd, {
-      capture: true,
-    });
   }
 
   createDOMEventHandlers() {
     const plugin = this;
 
     return EditorView.domEventHandlers({
+      keydown: (event: KeyboardEvent, view: EditorView) => {
+        plugin.lastKey = event.key;
+        return false;
+      },
       scroll: (event: Event, view: EditorView) => {
         if (!plugin.settings.flashOnWindowScrolls) return false;
 
         const currentScrollPos = view.scrollDOM.scrollTop;
         const scrollDelta = Math.abs(
           currentScrollPos - plugin.lastScrollPosition,
-        );
+          );
         plugin.lastScrollPosition = currentScrollPos;
 
         const now = Date.now();
@@ -1619,9 +1600,7 @@ export default class VisibleCursorPlugin extends Plugin {
     }
 
     this.flashActive = true;
-    if (this.settings.customCursorMode === "flash") {
-      document.body.classList.add("visible-cursor-flash-active");
-    }
+    this.refreshDecorations();
 
     if (this.resetFlashTimeout) {
       window.clearTimeout(this.resetFlashTimeout);
@@ -1629,9 +1608,7 @@ export default class VisibleCursorPlugin extends Plugin {
 
     this.resetFlashTimeout = this.flashScheduler.scheduleReset(() => {
       this.flashActive = false;
-      if (this.settings.customCursorMode === "flash") {
-        document.body.classList.remove("visible-cursor-flash-active");
-      }
+      this.refreshDecorations();
     }, this.settings.flashDuration);
   }
 
@@ -1663,23 +1640,16 @@ export default class VisibleCursorPlugin extends Plugin {
       (highlightDistance / editorRect.width) * 100,
     );
 
-    const colorStop = `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${opacity})`;
-    const cssText = `
-			position: fixed;
-			left: ${editorRect.left}px;
-			top: ${coords.top}px;
-			width: ${editorRect.width}px;
-			height: ${lineHeight}px;
-			background: linear-gradient(to right,
-				${colorStop} 0%,
-				rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${opacity * 0.5}) ${highlightPercent * 0.5}%,
-				rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0) ${highlightPercent}%,
-				rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0) 100%
-			);
-			pointer-events: none;
-			z-index: 1;
-			animation: flash-line-fade ${this.settings.flashDuration}ms ease-out;
-		`;
+    const position = { left: editorRect.left, top: coords.top };
+    const size = { width: editorRect.width, height: lineHeight };
+    const cssText = this.flashRenderer.buildLeftGradientCSS(
+      position,
+      size,
+      rgb,
+      opacity,
+      highlightPercent,
+      this.settings.flashDuration
+    );
     this.flashRenderer.render("left", cssText, this.settings.flashDuration);
   }
 
@@ -1700,23 +1670,16 @@ export default class VisibleCursorPlugin extends Plugin {
       (highlightDistance / editorRect.width) * 100,
     );
 
-    const colorStop = `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${opacity})`;
-    const cssText = `
-			position: fixed;
-			left: ${editorRect.left}px;
-			top: ${coords.top}px;
-			width: ${editorRect.width}px;
-			height: ${lineHeight}px;
-			background: linear-gradient(to left,
-				${colorStop} 0%,
-				rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${opacity * 0.5}) ${highlightPercent * 0.5}%,
-				rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0) ${highlightPercent}%,
-				rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0) 100%
-			);
-			pointer-events: none;
-			z-index: 1;
-			animation: flash-line-fade ${this.settings.flashDuration}ms ease-out;
-		`;
+    const position = { left: editorRect.left, top: coords.top };
+    const size = { width: editorRect.width, height: lineHeight };
+    const cssText = this.flashRenderer.buildRightGradientCSS(
+      position,
+      size,
+      rgb,
+      opacity,
+      highlightPercent,
+      this.settings.flashDuration
+    );
     this.flashRenderer.render("right", cssText, this.settings.flashDuration);
   }
 
@@ -1733,69 +1696,26 @@ export default class VisibleCursorPlugin extends Plugin {
     const { color, opacity } = this.colorProvider.getColor(this.settings);
     const rgb = this.colorProvider.resolveColorToRgb(color);
 
-    const peakOpacity = opacity;
-    const fadeOpacity = opacity * 0.75;
     const fontSize = parseFloat(getComputedStyle(editorElement).fontSize) || 16;
     const charWidth = fontSize * 0.6;
     const spreadDistance = (this.settings.flashSize / 2) * charWidth;
     const spreadPercent = (spreadDistance / editorRect.width) * 100;
-    const leftEdge = Math.max(0, cursorPercent - spreadPercent);
-    const rightEdge = Math.min(100, cursorPercent + spreadPercent);
 
-    const cssText = `
-			position: fixed;
-			left: ${editorRect.left}px;
-			top: ${coords.top}px;
-			width: ${editorRect.width}px;
-			height: ${lineHeight}px;
-			background: linear-gradient(to right,
-				rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0) 0%,
-				rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0) ${leftEdge}%,
-				rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${fadeOpacity}) ${(leftEdge + cursorPercent) / 2}%,
-				rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${peakOpacity}) ${cursorPercent}%,
-				rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${fadeOpacity}) ${(cursorPercent + rightEdge) / 2}%,
-				rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0) ${rightEdge}%,
-				rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0) 100%
-			);
-			pointer-events: none;
-			z-index: 1;
-			animation: flash-line-fade ${this.settings.flashDuration}ms ease-out;
-		`;
+    const position = { left: editorRect.left, top: coords.top };
+    const size = { width: editorRect.width, height: lineHeight };
+    const cssText = this.flashRenderer.buildCenteredGradientCSS(
+      position,
+      size,
+      rgb,
+      opacity,
+      cursorPercent,
+      spreadPercent,
+      this.settings.flashDuration
+    );
     this.flashRenderer.render("centered", cssText, this.settings.flashDuration);
   }
 
-  updateCursorStyles(): void {
-    if (this.styleElement) {
-      this.styleElement.remove();
-      this.styleElement = null;
-    }
-
-    const mode = this.settings.customCursorMode;
-
-    this.styleElement = document.createElement("style");
-    this.styleElement.id = "cursor-flash-dynamic-styles";
-
-    if (mode === "off") {
-      document.head.appendChild(this.styleElement);
-      return;
-    }
-
-    // Hide native browser caret so it doesn't appear alongside our custom cursor.
-    // In 'flash' mode, only suppress the caret during active flash windows.
-    const caretScope =
-      mode === "flash"
-        ? "body.visible-cursor-flash-active:not(.visible-cursor-is-composing) .cm-editor.cm-focused .cm-content"
-        : "body:not(.visible-cursor-is-composing) .cm-editor.cm-focused .cm-content";
-
-    this.styleElement.textContent = `
-${caretScope} {
-	caret-color: transparent !important;
-}`;
-    document.head.appendChild(this.styleElement);
-  }
-
   refreshDecorations() {
-    this.updateCursorStyles();
     this.app.workspace.iterateAllLeaves((leaf) => {
       if (leaf.view instanceof MarkdownView) {
         const editorView = this.getCMView(leaf.view);
@@ -1824,8 +1744,6 @@ ${caretScope} {
   }
 
   onunload() {
-    if (this.styleElement) this.styleElement.remove();
-    document.body.classList.remove("visible-cursor-flash-active");
     if (this.flashTimeout) window.clearTimeout(this.flashTimeout);
     if (this.resetFlashTimeout) window.clearTimeout(this.resetFlashTimeout);
     if (this.scrollDebounceTimer) window.clearTimeout(this.scrollDebounceTimer);
@@ -1841,12 +1759,15 @@ ${caretScope} {
     window.removeEventListener("click", this.boundClickEndFence, {
       capture: true,
     });
-    window.removeEventListener("keydown", this.boundKeydown, { capture: true });
-    window.removeEventListener("compositionstart", this.boundCompositionStart, {
-      capture: true,
-    });
-    window.removeEventListener("compositionend", this.boundCompositionEnd, {
-      capture: true,
+
+    // Remove hide-caret class from all active editors when unloading the plugin
+    this.app.workspace.iterateAllLeaves((leaf) => {
+      if (leaf.view instanceof MarkdownView) {
+        const editorView = this.getCMView(leaf.view);
+        if (editorView && editorView.contentDOM) {
+          editorView.contentDOM.classList.remove("visible-cursor-hide-caret");
+        }
+      }
     });
   }
 }

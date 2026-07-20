@@ -6,7 +6,6 @@
 export class FlashRenderer {
   /**
    * Render a flash effect with the specified gradient mode
-   * Eliminates code duplication between showLineFlash, showLineFlashRightToLeft, and showCursorCenteredFlash
    *
    * @param mode - Gradient direction: 'left', 'right', or 'centered'
    * @param cssText - Complete CSS text for the flash element
@@ -30,9 +29,12 @@ export class FlashRenderer {
   buildLeftGradientCSS(
     position: { left: number; top: number },
     size: { width: number; height: number },
-    gradient: { colorStop: string; fadePercent: number; opacity: number }
+    rgb: { r: number; g: number; b: number },
+    opacity: number,
+    highlightPercent: number,
+    duration: number
   ): string {
-    const { colorStop, fadePercent, opacity } = gradient;
+    const colorStop = `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${opacity})`;
 
     return `
       position: fixed;
@@ -41,12 +43,14 @@ export class FlashRenderer {
       width: ${size.width}px;
       height: ${size.height}px;
       background: linear-gradient(to right,
-        ${colorStop},
-        ${colorStop.replace(colorStop.split(',')[3].trim(), `${opacity * 0.5})`)} ${fadePercent * 0.5}%,
-        transparent ${fadePercent}%
+        ${colorStop} 0%,
+        rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${opacity * 0.5}) ${highlightPercent * 0.5}%,
+        rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0) ${highlightPercent}%,
+        rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0) 100%
       );
       pointer-events: none;
       z-index: 1;
+      animation: flash-line-fade ${duration}ms ease-out;
     `;
   }
 
@@ -57,9 +61,12 @@ export class FlashRenderer {
   buildRightGradientCSS(
     position: { left: number; top: number },
     size: { width: number; height: number },
-    gradient: { colorStop: string; fadePercent: number; opacity: number }
+    rgb: { r: number; g: number; b: number },
+    opacity: number,
+    highlightPercent: number,
+    duration: number
   ): string {
-    const { colorStop, fadePercent, opacity } = gradient;
+    const colorStop = `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${opacity})`;
 
     return `
       position: fixed;
@@ -68,12 +75,14 @@ export class FlashRenderer {
       width: ${size.width}px;
       height: ${size.height}px;
       background: linear-gradient(to left,
-        ${colorStop},
-        ${colorStop.replace(colorStop.split(',')[3].trim(), `${opacity * 0.5})`)} ${fadePercent * 0.5}%,
-        transparent ${fadePercent}%
+        ${colorStop} 0%,
+        rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${opacity * 0.5}) ${highlightPercent * 0.5}%,
+        rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0) ${highlightPercent}%,
+        rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0) 100%
       );
       pointer-events: none;
       z-index: 1;
+      animation: flash-line-fade ${duration}ms ease-out;
     `;
   }
 
@@ -84,16 +93,14 @@ export class FlashRenderer {
   buildCenteredGradientCSS(
     position: { left: number; top: number },
     size: { width: number; height: number },
-    gradient: {
-      colorStop: string;
-      cursorPercent: number;
-      spreadPercent: number;
-      peakOpacity: number;
-      fadeOpacity: number;
-    }
+    rgb: { r: number; g: number; b: number },
+    opacity: number,
+    cursorPercent: number,
+    spreadPercent: number,
+    duration: number
   ): string {
-    const { colorStop, cursorPercent, spreadPercent, peakOpacity, fadeOpacity } = gradient;
-
+    const peakOpacity = opacity;
+    const fadeOpacity = opacity * 0.75;
     const leftEdge = Math.max(0, cursorPercent - spreadPercent);
     const rightEdge = Math.min(100, cursorPercent + spreadPercent);
 
@@ -106,14 +113,15 @@ export class FlashRenderer {
       background: linear-gradient(to right,
         transparent 0%,
         transparent ${leftEdge}%,
-        ${colorStop.replace(colorStop.split(',')[3].trim(), `${fadeOpacity})`)} ${(leftEdge + cursorPercent) / 2}%,
-        ${colorStop.replace(colorStop.split(',')[3].trim(), `${peakOpacity})`)} ${cursorPercent}%,
-        ${colorStop.replace(colorStop.split(',')[3].trim(), `${fadeOpacity})`)} ${(cursorPercent + rightEdge) / 2}%,
+        rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${fadeOpacity}) ${(leftEdge + cursorPercent) / 2}%,
+        rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${peakOpacity}) ${cursorPercent}%,
+        rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${fadeOpacity}) ${(cursorPercent + rightEdge) / 2}%,
         transparent ${rightEdge}%,
         transparent 100%
       );
       pointer-events: none;
       z-index: 1;
+      animation: flash-line-fade ${duration}ms ease-out;
     `;
   }
 }

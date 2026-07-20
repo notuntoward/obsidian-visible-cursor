@@ -39,3 +39,8 @@
 .visible-cursor-settings .checkbox-container.is-enabled {
   background-color: var(--interactive-accent) !important;
 }
+
+/* Local cursor suppression */
+.visible-cursor-hide-caret .cm-content {
+  caret-color: transparent !important;
+}

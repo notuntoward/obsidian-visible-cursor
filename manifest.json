@@ -1,7 +1,7 @@
 {
 	"id": "visible-cursor",
 	"name": "Visible Cursor",
-	"version": "1.0.14",
+	"version": "1.0.15",
 	"minAppVersion": "1.4.0",
 	"description": "Visual aids to prevent losing track of your cursor.",
 	"author": "Scott Otterson",
