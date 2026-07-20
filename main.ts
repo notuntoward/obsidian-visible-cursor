@@ -32,6 +32,7 @@ export class CustomCursorViewPlugin {
   private lastCursorViewportLeft: number | null = null;
   private lastCursorDocPos: number | null = null;
   private docChangedInUpdate = false;
+  private lastKeyInUpdate = "";
 
   constructor(view: EditorView, plugin: VisibleCursorPlugin) {
     this.view = view;
@@ -49,6 +50,7 @@ export class CustomCursorViewPlugin {
 
   update(update: ViewUpdate) {
     this.docChangedInUpdate = update.docChanged;
+    this.lastKeyInUpdate = this.plugin.lastKey;
 
     if (
       update.docChanged ||
@@ -260,11 +262,17 @@ export class CustomCursorViewPlugin {
           return null;
         }
 
+        const isArrowKey =
+          this.lastKeyInUpdate === "ArrowUp" ||
+          this.lastKeyInUpdate === "ArrowDown" ||
+          this.lastKeyInUpdate === "ArrowLeft" ||
+          this.lastKeyInUpdate === "ArrowRight";
+
         if (this.lastCursorDocPos === null) {
           this.lastCursorViewportTop = rawCoords.top;
           this.lastCursorViewportLeft = rawCoords.left;
           this.lastCursorDocPos = visualPos;
-        } else if (view.hasFocus && !this.docChangedInUpdate && this.lastCursorDocPos !== visualPos) {
+        } else if (view.hasFocus && !this.docChangedInUpdate && !isArrowKey && this.lastCursorDocPos !== visualPos) {
           const currentTop = rawCoords.top;
           const currentLeft = rawCoords.left;
 
