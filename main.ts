@@ -635,6 +635,7 @@ interface HiddenBoundaryRenderState {
 export default class VisibleCursorPlugin extends Plugin {
   settings: VisibleCursorPluginSettings;
   lastKey: string = "";
+  lastKeyDownTime: number = 0;
   debugCursorDiagnostics: boolean = true;
 
   private lastViewChange: number = 0;
@@ -745,6 +746,7 @@ export default class VisibleCursorPlugin extends Plugin {
     return EditorView.domEventHandlers({
       keydown: (event: KeyboardEvent, view: EditorView) => {
         plugin.lastKey = event.key;
+        plugin.lastKeyDownTime = Date.now();
         return false;
       },
       scroll: (event: Event, view: EditorView) => {
@@ -763,6 +765,10 @@ export default class VisibleCursorPlugin extends Plugin {
         const debounceTime =
           plugin.flashScheduler.getScrollDebounceTime(scrollDelta);
         plugin.scrollDebounceTimer = window.setTimeout(() => {
+          if (Date.now() - plugin.lastKeyDownTime < 250) {
+            plugin.scrollDebounceTimer = null;
+            return;
+          }
           plugin.scheduleFlash("scroll", false);
           plugin.scrollDebounceTimer = null;
         }, debounceTime);
