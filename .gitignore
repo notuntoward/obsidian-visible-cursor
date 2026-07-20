@@ -25,3 +25,6 @@ test-results/
 # User settings - stored per-vault by Obsidian
 data.json
 screenshots/README HOWTO.md
+
+# Test coverage
+coverage/
