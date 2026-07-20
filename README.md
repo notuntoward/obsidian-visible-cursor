@@ -61,7 +61,7 @@ That access is intentionally limited and defensive:
 - It is centralized in one location so future Obsidian changes require a single update point.
 - Failure is non-destructive: if the CM6 view is unavailable, features that need it simply no-op rather than throwing, modifying note content, or interfering with normal editing.
 
-- Global capture-phase event listeners (`pointerdown`, `pointerup`, `pointercancel`, `click`, `keydown`, `compositionstart`, `compositionend`) are used to distinguish user-initiated navigation from editor-driven focus changes. Without capture-phase access, the plugin cannot reliably determine whether a cursor position change is a deliberate user action (arrow keys, clicking) versus a side effect of Obsidian managing focus internally. These listeners are cleaned up in `onunload()` and do not interfere with normal editing.
+- Global capture-phase event listeners (`pointerdown`, `pointerup`, `pointercancel`, `click`) are used to distinguish user-initiated mouse clicks from editor-driven focus changes. Without capture-phase access, the plugin cannot reliably determine whether a click position change is a deliberate user action versus a side effect of Obsidian managing focus internally. Keyboard events and IME compositions are sandboxed locally via CodeMirror's `domEventHandlers` and `view.composing` properties. All listeners are cleaned up in `onunload()` and do not interfere with normal editing.
 
 If Obsidian exposes an equivalent public API in the future, this plugin should switch to that public surface.
 
@@ -105,6 +105,9 @@ If Obsidian exposes an equivalent public API in the future, this plugin should s
 
 **On file switch** (default: ON)
 - Show flash when switching between notes or panes
+
+**On navigation repeat end** (default: OFF)
+- Show flash at the end of a keyboard repeat sequence (holding movement keys) if a large cursor movement occurred.
 ### Colors
 
 <!-- ![Color Settings](screenshots/settings-colors.png) -->
@@ -115,19 +118,23 @@ If Obsidian exposes an equivalent public API in the future, this plugin should s
 - Updates automatically when theme changes
 - Turn off for manual light/dark control
 
-## What's New in v1.0.14
+## What's New in v1.0.15
 
-### New Features
-- Added "Flash after cursor jump keys" option for Home, End, Ctrl+Home, Ctrl+End, Ctrl+A, Ctrl+E
-- Renamed "blink on cursor jumps" to "Flash on long single move repeats" for clarity
-- Arrow keys now trigger flashes (via document-level keydown/keyup listeners with capture phase)
-
-### Renamed Throughout
-- All "blink" terminology replaced with "flash"
-- All "beacon" terminology replaced with "cue"
-- Plugin renamed from "Obsidian Beacon" → "Visible Cursor"
+- **On navigation repeat end setting**: Toggle to trigger a flash after holding down movement keys (arrows, Vim, Emacs repeats) if a large cursor movement occurred.
+- **Indentation & Bullet width fix**: Block cursor no longer stretches across list markers/indentation space.
+- **Reliable scroll flashing & keyboard scrolling bypass**: Bypasses scroll-stop flashes during active keyboard navigation, and ensures reliable scroll-stop flashes on trackpad/mouse scroll.
+- **Smart Jump filtering**: Restricts cursor position jump flashes to transitions of more than one logical line (`lineDiff > 1`) to eliminate false flashes on headings or link navigation.
+- **Localized Event Sandboxing**: Removed global keyboard and composition listeners, replacing them with CodeMirror 6's localized `domEventHandlers` and `view.composing`.
 
 ## Changelog
+
+### v1.0.15
+- **New**: "On navigation repeat end" setting toggle
+- **Fixed**: Custom block cursor width fallback on tabs, list markers, and widgets
+- **Fixed**: Avoid flashes on standard single-line arrowing, Vim keys, and Emacs keys
+- **Fixed**: Bypass scroll-stop flashes for keyboard-driven scrolling
+- **Refactored**: Removed global keyboard/composition listeners, localizing them in CodeMirror
+- **Refactored**: Consolidated CSS animation/gradient construction within FlashRenderer
 
 ### v1.0.14
 - **New**: Flash after cursor jump keys (Home, End, Ctrl+Home, Ctrl+End, Ctrl+A, Ctrl+E)
