@@ -322,7 +322,9 @@ export class CustomCursorViewPlugin {
             rightCoords.left > coordsLeft &&
             !isEndOfVisualLine
           ) {
-            charWidth = rightCoords.left - coordsLeft;
+            const width = rightCoords.left - coordsLeft;
+            const maxWidth = (view.defaultCharacterWidth || 10) * 1.75;
+            charWidth = width > maxWidth ? (view.defaultCharacterWidth || 10) : width;
           } else {
             charWidth = view.defaultCharacterWidth || 10;
           }

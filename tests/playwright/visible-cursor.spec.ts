@@ -61,3 +61,23 @@ test('cursor can be placed inside wikilink alias text', async ({ page }) => {
 	expect((rect as HarnessRect).height).toBeGreaterThan(0);
 	expect((rect as HarnessRect).width).toBeGreaterThan(3);
 });
+
+test('block cursor on indented bullet retains normal width', async ({ page }) => {
+	await page.evaluate(() => {
+		window.__visibleCursorHarness?.setDoc('  - indented bullet item', 0);
+		window.__visibleCursorHarness?.setCursor(0);
+	});
+	await page.waitForTimeout(100);
+
+	const result = await page.evaluate(() => {
+		const harness = window.__visibleCursorHarness;
+		if (!harness) throw new Error('Harness unavailable');
+		const rect = harness.getCustomCursorRect();
+		const defaultWidth = harness.getDefaultCharWidth();
+		return { rect, defaultWidth };
+	});
+
+	expect(result.rect).not.toBeNull();
+	expect((result.rect as HarnessRect).width).toBeLessThan(result.defaultWidth * 2.0);
+});
+
