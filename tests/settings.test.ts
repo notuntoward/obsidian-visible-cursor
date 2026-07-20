@@ -25,7 +25,8 @@ describe('DEFAULT_SETTINGS', () => {
 			useThemeColors: true,
 			flashOnWindowScrolls: true,
 			flashOnWindowChanges: true,
-			flashSize: 15
+			flashSize: 15,
+			flashOnRepeatEnd: false
 		};
 
 		expect(DEFAULT_SETTINGS).toEqual(expected);
@@ -38,6 +39,7 @@ describe('DEFAULT_SETTINGS', () => {
 			'customCursorMode',
 			'customCursorStyle',
 			'flashDuration',
+			'flashOnRepeatEnd',
 			'flashOnWindowChanges',
 			'flashOnWindowScrolls',
 			'flashSize',

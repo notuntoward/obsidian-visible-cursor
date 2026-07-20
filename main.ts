@@ -646,6 +646,8 @@ export default class VisibleCursorPlugin extends Plugin {
   settings: VisibleCursorPluginSettings;
   lastKey: string = "";
   lastKeyDownTime: number = 0;
+  repeatStartDocPos: number | null = null;
+  repeatEndTimer: number | null = null;
   debugCursorDiagnostics: boolean = true;
 
   private lastViewChange: number = 0;
@@ -757,6 +759,27 @@ export default class VisibleCursorPlugin extends Plugin {
       keydown: (event: KeyboardEvent, view: EditorView) => {
         plugin.lastKey = event.key;
         plugin.lastKeyDownTime = Date.now();
+
+        const isMove = plugin.isMovementKey(event.key, event.ctrlKey, event.metaKey);
+        if (isMove) {
+          if (plugin.repeatStartDocPos === null) {
+            plugin.repeatStartDocPos = view.state.selection.main.head;
+          }
+          if (plugin.repeatEndTimer) {
+            window.clearTimeout(plugin.repeatEndTimer);
+          }
+          plugin.repeatEndTimer = window.setTimeout(() => {
+            plugin.handleRepeatEnd(view);
+            plugin.repeatEndTimer = null;
+          }, 300);
+        } else {
+          if (plugin.repeatEndTimer) {
+            window.clearTimeout(plugin.repeatEndTimer);
+            plugin.repeatEndTimer = null;
+          }
+          plugin.repeatStartDocPos = null;
+        }
+
         return false;
       },
       scroll: (event: Event, view: EditorView) => {
@@ -1807,10 +1830,63 @@ export default class VisibleCursorPlugin extends Plugin {
     await this.saveData(this.settings);
   }
 
+  handleRepeatEnd(view: EditorView) {
+    if (!this.settings.flashOnRepeatEnd) return;
+    if (this.repeatStartDocPos === null) return;
+
+    const startPos = this.repeatStartDocPos;
+    this.repeatStartDocPos = null;
+
+    const currentPos = view.state.selection.main.head;
+    if (startPos === currentPos) return;
+
+    const doc = view.state.doc;
+    const line1 = doc.lineAt(startPos);
+    const line2 = doc.lineAt(currentPos);
+
+    if (line1.number === line2.number) return;
+
+    const row1 = line1.number;
+    const col1 = startPos - line1.from;
+    const row2 = line2.number;
+    const col2 = currentPos - line2.from;
+
+    const dy_chars = (row2 - row1) * 40;
+    const dx_chars = col2 - col1;
+    const distance = Math.sqrt(dy_chars * dy_chars + dx_chars * dx_chars);
+
+    if (distance > 100) {
+      this.scheduleFlash("repeat-end", false);
+    }
+  }
+
+  isMovementKey(key: string, ctrlKey: boolean, metaKey: boolean): boolean {
+    const k = key.toLowerCase();
+    if (
+      key.startsWith("Arrow") ||
+      key === "PageUp" ||
+      key === "PageDown" ||
+      key === "Home" ||
+      key === "End"
+    ) {
+      return true;
+    }
+    if (key === "j" || key === "k" || key === "h" || key === "l") {
+      return true;
+    }
+    if (ctrlKey || metaKey) {
+      if (k === "n" || k === "p" || k === "f" || k === "b" || k === "a" || k === "e") {
+        return true;
+      }
+    }
+    return false;
+  }
+
   onunload() {
     if (this.flashTimeout) window.clearTimeout(this.flashTimeout);
     if (this.resetFlashTimeout) window.clearTimeout(this.resetFlashTimeout);
     if (this.scrollDebounceTimer) window.clearTimeout(this.scrollDebounceTimer);
+    if (this.repeatEndTimer) window.clearTimeout(this.repeatEndTimer);
     window.removeEventListener("pointerdown", this.boundStartFence, {
       capture: true,
     });

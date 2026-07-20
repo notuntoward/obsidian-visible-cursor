@@ -13,6 +13,7 @@ export interface VisibleCursorPluginSettings {
 	flashOnWindowScrolls: boolean;
 	flashOnWindowChanges: boolean;
 	flashSize: number;
+	flashOnRepeatEnd?: boolean;
 }
 
 export const DEFAULT_SETTINGS: VisibleCursorPluginSettings = {
@@ -25,7 +26,8 @@ export const DEFAULT_SETTINGS: VisibleCursorPluginSettings = {
 	useThemeColors: true,
 	flashOnWindowScrolls: true,
 	flashOnWindowChanges: true,
-	flashSize: 15
+	flashSize: 15,
+	flashOnRepeatEnd: false
 }
 
 export class VisibleCursorSettingTab extends PluginSettingTab {
@@ -147,6 +149,16 @@ export class VisibleCursorSettingTab extends PluginSettingTab {
 				.setValue(this.plugin.settings.flashOnWindowChanges)
 				.onChange(async (value) => {
 					this.plugin.settings.flashOnWindowChanges = value;
+					await this.plugin.saveSettings();
+				}));
+
+		new Setting(containerEl)
+			.setName('On navigation repeat end')
+			.setDesc('Show flash at the end of a keyboard repeat sequence (holding movement keys) if a large cursor movement occurred')
+			.addToggle(toggle => toggle
+				.setValue(!!this.plugin.settings.flashOnRepeatEnd)
+				.onChange(async (value) => {
+					this.plugin.settings.flashOnRepeatEnd = value;
 					await this.plugin.saveSettings();
 				}));
 
