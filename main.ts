@@ -28,6 +28,11 @@ export class CustomCursorViewPlugin {
   private view: EditorView;
   private plugin: VisibleCursorPlugin;
 
+  private lastCursorViewportTop: number | null = null;
+  private lastCursorViewportLeft: number | null = null;
+  private lastCursorDocPos: number | null = null;
+  private docChangedInUpdate = false;
+
   constructor(view: EditorView, plugin: VisibleCursorPlugin) {
     this.view = view;
     this.plugin = plugin;
@@ -43,6 +48,8 @@ export class CustomCursorViewPlugin {
   }
 
   update(update: ViewUpdate) {
+    this.docChangedInUpdate = update.docChanged;
+
     if (
       update.docChanged ||
       update.selectionSet ||
@@ -246,7 +253,46 @@ export class CustomCursorViewPlugin {
         }
 
         const rawCoords = view.coordsAtPos(visualPos, assocForCoords as 1 | -1);
-        if (!rawCoords) return null;
+        if (!rawCoords) {
+          this.lastCursorViewportTop = null;
+          this.lastCursorViewportLeft = null;
+          this.lastCursorDocPos = visualPos;
+          return null;
+        }
+
+        if (this.lastCursorDocPos === null) {
+          this.lastCursorViewportTop = rawCoords.top;
+          this.lastCursorViewportLeft = rawCoords.left;
+          this.lastCursorDocPos = visualPos;
+        } else if (view.hasFocus && !this.docChangedInUpdate && this.lastCursorDocPos !== visualPos) {
+          const currentTop = rawCoords.top;
+          const currentLeft = rawCoords.left;
+
+          if (this.lastCursorViewportTop !== null && this.lastCursorViewportLeft !== null) {
+            const dy = Math.abs(currentTop - this.lastCursorViewportTop);
+            const dx = Math.abs(currentLeft - this.lastCursorViewportLeft);
+            const thresholdY = view.defaultLineHeight * 1.5;
+            const thresholdX = (view.defaultCharacterWidth || 10) * 5;
+
+            if (dy > thresholdY || dx > thresholdX) {
+              if (typeof this.plugin.scheduleFlash === "function") {
+                this.plugin.scheduleFlash("jump", false);
+              }
+            }
+          } else {
+            if (typeof this.plugin.scheduleFlash === "function") {
+              this.plugin.scheduleFlash("jump", false);
+            }
+          }
+
+          this.lastCursorViewportTop = currentTop;
+          this.lastCursorViewportLeft = currentLeft;
+          this.lastCursorDocPos = visualPos;
+        } else {
+          this.lastCursorViewportTop = rawCoords.top;
+          this.lastCursorViewportLeft = rawCoords.left;
+          this.lastCursorDocPos = visualPos;
+        }
         // Mutable copy so we can correct for inflated line boxes
         let coordsTop = rawCoords.top;
         let coordsBottom = rawCoords.bottom;
@@ -697,18 +743,8 @@ export default class VisibleCursorPlugin extends Plugin {
         const currentScrollPos = view.scrollDOM.scrollTop;
         const scrollDelta = Math.abs(
           currentScrollPos - plugin.lastScrollPosition,
-          );
+        );
         plugin.lastScrollPosition = currentScrollPos;
-
-        const now = Date.now();
-        if (plugin.flashActive || now < plugin.scrollFlashSuppressedUntil) {
-          plugin.scrollFlashSuppressedUntil = now + 300;
-          if (plugin.scrollDebounceTimer) {
-            window.clearTimeout(plugin.scrollDebounceTimer);
-            plugin.scrollDebounceTimer = null;
-          }
-          return false;
-        }
 
         if (plugin.scrollDebounceTimer) {
           window.clearTimeout(plugin.scrollDebounceTimer);

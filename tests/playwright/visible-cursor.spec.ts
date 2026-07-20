@@ -4,6 +4,12 @@ import type { HarnessRect } from './harnessTypes';
 const DOC = 'Before\n[[test-notes/Note-09.md#Note Nine |Note Nine]]\nAfter';
 
 test.beforeEach(async ({ page }) => {
+	page.on('console', msg => {
+		console.log(`[Browser Console] [${msg.type()}] ${msg.text()}`);
+	});
+	page.on('pageerror', err => {
+		console.log(`[Browser PageError] ${err.message}\n${err.stack}`);
+	});
 	await page.goto('/tests/playwright/index.html');
 	await page.waitForFunction(() => Boolean(window.__visibleCursorHarness));
 	await page.evaluate((doc) => {
