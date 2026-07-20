@@ -32,7 +32,6 @@ export class CustomCursorViewPlugin {
   private lastCursorViewportLeft: number | null = null;
   private lastCursorDocPos: number | null = null;
   private docChangedInUpdate = false;
-  private lastKeyInUpdate = "";
 
   constructor(view: EditorView, plugin: VisibleCursorPlugin) {
     this.view = view;
@@ -50,7 +49,6 @@ export class CustomCursorViewPlugin {
 
   update(update: ViewUpdate) {
     this.docChangedInUpdate = update.docChanged;
-    this.lastKeyInUpdate = this.plugin.lastKey;
 
     if (
       update.docChanged ||
@@ -262,40 +260,44 @@ export class CustomCursorViewPlugin {
           return null;
         }
 
-        const isArrowKey =
-          this.lastKeyInUpdate === "ArrowUp" ||
-          this.lastKeyInUpdate === "ArrowDown" ||
-          this.lastKeyInUpdate === "ArrowLeft" ||
-          this.lastKeyInUpdate === "ArrowRight";
-
         if (this.lastCursorDocPos === null) {
           this.lastCursorViewportTop = rawCoords.top;
           this.lastCursorViewportLeft = rawCoords.left;
           this.lastCursorDocPos = visualPos;
-        } else if (view.hasFocus && !this.docChangedInUpdate && !isArrowKey && this.lastCursorDocPos !== visualPos) {
-          const currentTop = rawCoords.top;
-          const currentLeft = rawCoords.left;
+        } else if (view.hasFocus && !this.docChangedInUpdate) {
+          const line1 = view.state.doc.lineAt(this.lastCursorDocPos);
+          const line2 = view.state.doc.lineAt(visualPos);
+          const lineDiff = Math.abs(line2.number - line1.number);
 
-          if (this.lastCursorViewportTop !== null && this.lastCursorViewportLeft !== null) {
-            const dy = Math.abs(currentTop - this.lastCursorViewportTop);
-            const dx = Math.abs(currentLeft - this.lastCursorViewportLeft);
-            const thresholdY = view.defaultLineHeight * 1.5;
-            const thresholdX = (view.defaultCharacterWidth || 10) * 5;
+          if (lineDiff > 1 && this.lastCursorDocPos !== visualPos) {
+            const currentTop = rawCoords.top;
+            const currentLeft = rawCoords.left;
 
-            if (dy > thresholdY || dx > thresholdX) {
+            if (this.lastCursorViewportTop !== null && this.lastCursorViewportLeft !== null) {
+              const dy = Math.abs(currentTop - this.lastCursorViewportTop);
+              const dx = Math.abs(currentLeft - this.lastCursorViewportLeft);
+              const thresholdY = view.defaultLineHeight * 1.5;
+              const thresholdX = (view.defaultCharacterWidth || 10) * 5;
+
+              if (dy > thresholdY || dx > thresholdX) {
+                if (typeof this.plugin.scheduleFlash === "function") {
+                  this.plugin.scheduleFlash("jump", false);
+                }
+              }
+            } else {
               if (typeof this.plugin.scheduleFlash === "function") {
                 this.plugin.scheduleFlash("jump", false);
               }
             }
-          } else {
-            if (typeof this.plugin.scheduleFlash === "function") {
-              this.plugin.scheduleFlash("jump", false);
-            }
-          }
 
-          this.lastCursorViewportTop = currentTop;
-          this.lastCursorViewportLeft = currentLeft;
-          this.lastCursorDocPos = visualPos;
+            this.lastCursorViewportTop = currentTop;
+            this.lastCursorViewportLeft = currentLeft;
+            this.lastCursorDocPos = visualPos;
+          } else {
+            this.lastCursorViewportTop = rawCoords.top;
+            this.lastCursorViewportLeft = rawCoords.left;
+            this.lastCursorDocPos = visualPos;
+          }
         } else {
           this.lastCursorViewportTop = rawCoords.top;
           this.lastCursorViewportLeft = rawCoords.left;
