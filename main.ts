@@ -260,6 +260,16 @@ export class CustomCursorViewPlugin {
           return null;
         }
 
+        const key = this.plugin.lastKey;
+        const timeSinceKeyDown = Date.now() - this.plugin.lastKeyDownTime;
+        const isAllowedJumpKey =
+          key === "PageUp" ||
+          key === "PageDown" ||
+          key === "Home" ||
+          key === "End" ||
+          key === "Enter";
+        const isKeyboardBypass = timeSinceKeyDown < 250 && !isAllowedJumpKey;
+
         if (this.lastCursorDocPos === null) {
           this.lastCursorViewportTop = rawCoords.top;
           this.lastCursorViewportLeft = rawCoords.left;
@@ -269,7 +279,7 @@ export class CustomCursorViewPlugin {
           const line2 = view.state.doc.lineAt(visualPos);
           const lineDiff = Math.abs(line2.number - line1.number);
 
-          if (lineDiff > 1 && this.lastCursorDocPos !== visualPos) {
+          if (!isKeyboardBypass && lineDiff > 1 && this.lastCursorDocPos !== visualPos) {
             const currentTop = rawCoords.top;
             const currentLeft = rawCoords.left;
 
