@@ -94,12 +94,12 @@ describe('getContrastRatio', () => {
 });
 
 describe('shouldAllowFlash', () => {
-	it('should allow flash for view-change trigger even with active click fence', () => {
-		expect(shouldAllowFlash('view-change', true, false, false)).toBe(true);
+	it('should block flash for view-change trigger with active click fence', () => {
+		expect(shouldAllowFlash('view-change', true, false, false)).toBe(false);
 	});
 
-	it('should allow flash for layout-change trigger even with active click fence', () => {
-		expect(shouldAllowFlash('layout-change', true, false, false)).toBe(true);
+	it('should block flash for layout-change trigger with active click fence', () => {
+		expect(shouldAllowFlash('layout-change', true, false, false)).toBe(false);
 	});
 
 	it('should block flash for scroll trigger with active click fence', () => {
@@ -118,11 +118,13 @@ describe('shouldAllowFlash', () => {
 		expect(shouldAllowFlash('scroll', false, false, false)).toBe(true);
 	});
 
-	it('should block scroll trigger with active fence but allow view trigger', () => {
+	it('should block all triggers with active fence', () => {
 		const scrollBlocked = shouldAllowFlash('scroll', true, false, false);
-		const viewAllowed = shouldAllowFlash('view-change', true, false, false);
+		const viewBlocked = shouldAllowFlash('view-change', true, false, false);
+		const layoutBlocked = shouldAllowFlash('layout-change', true, false, false);
 		expect(scrollBlocked).toBe(false);
-		expect(viewAllowed).toBe(true);
+		expect(viewBlocked).toBe(false);
+		expect(layoutBlocked).toBe(false);
 	});
 });
 
