@@ -6,7 +6,7 @@ import {
   DEFAULT_SETTINGS,
   VisibleCursorSettingTab,
 } from "./settings";
-import { migrateSettings } from "./src/utils";
+import { migrateSettings, isEditorTextClick } from "./src/utils";
 import { ColorProvider } from "./src/services/colorProvider";
 import { FlashScheduler, type FlashState } from "./src/services/flashScheduler";
 import { FlashRenderer } from "./src/services/flashRenderer";
@@ -801,9 +801,11 @@ export default class VisibleCursorPlugin extends Plugin {
       }),
     );
 
-    // Global click fence: raised in capture-phase pointerdown
-    this.boundStartFence = () => {
-      this.clickFenceActive = true;
+    // Global click fence: raised in capture-phase pointerdown ONLY for clicks inside editor text
+    this.boundStartFence = (evt?: Event) => {
+      if (isEditorTextClick(evt?.target ?? null)) {
+        this.clickFenceActive = true;
+      }
     };
     this.boundEndFenceSoon = () => {
       window.setTimeout(() => {

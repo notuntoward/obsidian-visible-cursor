@@ -21,22 +21,29 @@ if (typeof global !== 'undefined' && !global.document) {
 			appendChild: () => {},
 			removeChild: () => {}
 		},
-		createElement: (tag: string) => ({
-			tagName: tag.toUpperCase(),
-			textContent: '',
-			style: {
-				cssText: ''
-			},
-			setAttribute: () => {},
-			getAttribute: () => null,
-			remove: () => {},
-			className: '',
-			close: () => {},
-			open: () => {},
-			write: () => {},
-			appendChild: () => {},
-			removeChild: () => {}
-		}),
+		createElement: (tag: string) => {
+			const el: any = {
+				tagName: tag.toUpperCase(),
+				textContent: '',
+				style: {
+					cssText: ''
+				},
+				setAttribute: () => {},
+				getAttribute: () => null,
+				remove: () => {},
+				className: '',
+				close: () => {},
+				open: () => {},
+				write: () => {},
+				appendChild: (child: any) => {
+					if (child) child.parentElement = el;
+				},
+				removeChild: (child: any) => {
+					if (child) child.parentElement = null;
+				}
+			};
+			return el;
+		},
 		getElementById: () => null,
 		getComputedStyle: () => ({
 			getPropertyValue: () => '#6496ff',

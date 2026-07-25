@@ -98,7 +98,37 @@ export function getContrastRatio(color1: string, color2: string): number {
 
 
 /**
- * Determine if a flash trigger should be allowed based on click fence and view triggers
+ * Determine if an event target is inside an editor text DOM container
+ */
+export function isEditorTextClick(target: EventTarget | null): boolean {
+	if (!target) return false;
+	let curr: any = target;
+	while (curr && curr !== document) {
+		const cls = curr.className;
+		const classStr = typeof cls === 'string' ? cls : (cls?.baseVal ?? '');
+		if (
+			classStr.includes('cm-content') ||
+			classStr.includes('cm-editor') ||
+			classStr.includes('markdown-source-view')
+		) {
+			return true;
+		}
+		if (
+			curr.classList &&
+			typeof curr.classList.contains === 'function' &&
+			(curr.classList.contains('cm-content') ||
+				curr.classList.contains('cm-editor') ||
+				curr.classList.contains('markdown-source-view'))
+		) {
+			return true;
+		}
+		curr = curr.parentElement || curr.parentNode;
+	}
+	return false;
+}
+
+/**
+ * Determine if a flash trigger should be allowed based on click fence and active flash state
  */
 export function shouldAllowFlash(
 	trigger: string,
@@ -106,13 +136,11 @@ export function shouldAllowFlash(
 	isFlashActive: boolean,
 	hasPendingFlash: boolean
 ): boolean {
-	const isViewTrigger = trigger === 'view-change' || trigger === 'layout-change';
-
-	if (isFenceActive && !isViewTrigger) {
+	if (isFenceActive) {
 		return false;
 	}
 	
-	if (!isViewTrigger && (isFlashActive || hasPendingFlash)) {
+	if (isFlashActive || hasPendingFlash) {
 		return false;
 	}
 	

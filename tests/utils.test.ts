@@ -4,7 +4,8 @@ import {
 	getRelativeLuminance,
 	getContrastRatio,
 	shouldAllowFlash,
-	calculateScrollDebounceTime
+	calculateScrollDebounceTime,
+	isEditorTextClick
 } from '../src/utils';
 
 describe('hexToRgb', () => {
@@ -93,38 +94,49 @@ describe('getContrastRatio', () => {
 	});
 });
 
+describe('isEditorTextClick', () => {
+	it('should return true for elements inside .cm-content or .cm-editor', () => {
+		const editor = document.createElement('div');
+		editor.className = 'cm-content';
+		document.body.appendChild(editor);
+
+		const line = document.createElement('div');
+		line.className = 'cm-line';
+		editor.appendChild(line);
+
+		expect(isEditorTextClick(line)).toBe(true);
+		document.body.removeChild(editor);
+	});
+
+	it('should return false for elements outside editor text (e.g. tab headers, ribbon)', () => {
+		const tabHeader = document.createElement('div');
+		tabHeader.className = 'workspace-tab-header';
+		document.body.appendChild(tabHeader);
+
+		expect(isEditorTextClick(tabHeader)).toBe(false);
+		expect(isEditorTextClick(null)).toBe(false);
+		document.body.removeChild(tabHeader);
+	});
+});
+
 describe('shouldAllowFlash', () => {
-	it('should allow flash for view-change trigger with active click fence (e.g. clicking tab header)', () => {
-		expect(shouldAllowFlash('view-change', true, false, false)).toBe(true);
-	});
-
-	it('should allow flash for layout-change trigger with active click fence', () => {
-		expect(shouldAllowFlash('layout-change', true, false, false)).toBe(true);
-	});
-
-	it('should block flash for scroll trigger with active click fence', () => {
+	it('should block ALL flash triggers (including view-change) when click fence is active', () => {
+		expect(shouldAllowFlash('view-change', true, false, false)).toBe(false);
+		expect(shouldAllowFlash('layout-change', true, false, false)).toBe(false);
 		expect(shouldAllowFlash('scroll', true, false, false)).toBe(false);
 	});
 
-	it('should block flash when flash is already active for scroll trigger', () => {
-		expect(shouldAllowFlash('scroll', false, true, false)).toBe(false);
-	});
-
-	it('should block flash when pending flash exists for scroll trigger', () => {
-		expect(shouldAllowFlash('scroll', false, false, true)).toBe(false);
-	});
-
-	it('should allow flash in normal conditions', () => {
+	it('should allow flash when click fence is not active', () => {
+		expect(shouldAllowFlash('view-change', false, false, false)).toBe(true);
 		expect(shouldAllowFlash('scroll', false, false, false)).toBe(true);
 	});
 
-	it('should block scroll with active fence but allow view and layout triggers', () => {
-		const scrollBlocked = shouldAllowFlash('scroll', true, false, false);
-		const viewAllowed = shouldAllowFlash('view-change', true, false, false);
-		const layoutAllowed = shouldAllowFlash('layout-change', true, false, false);
-		expect(scrollBlocked).toBe(false);
-		expect(viewAllowed).toBe(true);
-		expect(layoutAllowed).toBe(true);
+	it('should block flash when flash is already active', () => {
+		expect(shouldAllowFlash('scroll', false, true, false)).toBe(false);
+	});
+
+	it('should block flash when pending flash exists', () => {
+		expect(shouldAllowFlash('scroll', false, false, true)).toBe(false);
 	});
 });
 
