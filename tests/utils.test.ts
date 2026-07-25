@@ -94,23 +94,23 @@ describe('getContrastRatio', () => {
 });
 
 describe('shouldAllowFlash', () => {
-	it('should block flash for view-change trigger with active click fence', () => {
-		expect(shouldAllowFlash('view-change', true, false, false)).toBe(false);
+	it('should allow flash for view-change trigger with active click fence (e.g. clicking tab header)', () => {
+		expect(shouldAllowFlash('view-change', true, false, false)).toBe(true);
 	});
 
-	it('should block flash for layout-change trigger with active click fence', () => {
-		expect(shouldAllowFlash('layout-change', true, false, false)).toBe(false);
+	it('should allow flash for layout-change trigger with active click fence', () => {
+		expect(shouldAllowFlash('layout-change', true, false, false)).toBe(true);
 	});
 
 	it('should block flash for scroll trigger with active click fence', () => {
 		expect(shouldAllowFlash('scroll', true, false, false)).toBe(false);
 	});
 
-	it('should block flash when flash is already active', () => {
+	it('should block flash when flash is already active for scroll trigger', () => {
 		expect(shouldAllowFlash('scroll', false, true, false)).toBe(false);
 	});
 
-	it('should block flash when pending flash exists', () => {
+	it('should block flash when pending flash exists for scroll trigger', () => {
 		expect(shouldAllowFlash('scroll', false, false, true)).toBe(false);
 	});
 
@@ -118,13 +118,13 @@ describe('shouldAllowFlash', () => {
 		expect(shouldAllowFlash('scroll', false, false, false)).toBe(true);
 	});
 
-	it('should block all triggers with active fence', () => {
+	it('should block scroll with active fence but allow view and layout triggers', () => {
 		const scrollBlocked = shouldAllowFlash('scroll', true, false, false);
-		const viewBlocked = shouldAllowFlash('view-change', true, false, false);
-		const layoutBlocked = shouldAllowFlash('layout-change', true, false, false);
+		const viewAllowed = shouldAllowFlash('view-change', true, false, false);
+		const layoutAllowed = shouldAllowFlash('layout-change', true, false, false);
 		expect(scrollBlocked).toBe(false);
-		expect(viewBlocked).toBe(false);
-		expect(layoutBlocked).toBe(false);
+		expect(viewAllowed).toBe(true);
+		expect(layoutAllowed).toBe(true);
 	});
 });
 

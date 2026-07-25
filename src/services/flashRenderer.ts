@@ -18,15 +18,34 @@ export class FlashRenderer {
     duration: number,
     parentElement?: HTMLElement
   ): void {
+    const parent = parentElement || document.body;
+
+    // Clean up any existing flash overlay elements to prevent overlapping animation blips
+    if (parent && typeof parent.querySelectorAll === 'function') {
+      const existing = parent.querySelectorAll('.obsidian-flash-line');
+      existing.forEach((el) => el.remove());
+    }
+
     const element = document.createElement('div');
     element.className = 'obsidian-flash-line';
     element.style.cssText = cssText;
 
-    const parent = parentElement || document.body;
     parent.appendChild(element);
-    window.setTimeout(() => {
-      element.remove();
-    }, duration);
+
+    let removed = false;
+    const cleanup = () => {
+      if (!removed) {
+        removed = true;
+        element.remove();
+      }
+    };
+
+    if (typeof element.addEventListener === 'function') {
+      element.addEventListener('animationend', cleanup, { once: true });
+    }
+
+    // Fallback cleanup timeout at animation duration
+    window.setTimeout(cleanup, duration);
   }
 
   /**
@@ -58,7 +77,7 @@ export class FlashRenderer {
       );
       pointer-events: none;
       z-index: 1;
-      animation: flash-line-fade ${duration}ms ease-out;
+      animation: flash-line-fade ${duration}ms ease-out forwards;
     `;
   }
 
@@ -91,7 +110,7 @@ export class FlashRenderer {
       );
       pointer-events: none;
       z-index: 1;
-      animation: flash-line-fade ${duration}ms ease-out;
+      animation: flash-line-fade ${duration}ms ease-out forwards;
     `;
   }
 
@@ -131,7 +150,7 @@ export class FlashRenderer {
       );
       pointer-events: none;
       z-index: 1;
-      animation: flash-line-fade ${duration}ms ease-out;
+      animation: flash-line-fade ${duration}ms ease-out forwards;
     `;
   }
 }

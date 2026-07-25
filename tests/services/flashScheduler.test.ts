@@ -33,7 +33,7 @@ describe('FlashScheduler Service', () => {
       expect(scheduler.canScheduleFlash('scroll', state)).toBe(false);
     });
 
-    it('should block view-change when click fence is active', () => {
+    it('should allow view-change when click fence is active (e.g. clicking tab header to switch note)', () => {
       const state: FlashState = {
         isFenceActive: true,
         isFlashActive: false,
@@ -42,7 +42,7 @@ describe('FlashScheduler Service', () => {
         now: Date.now(),
       };
 
-      expect(scheduler.canScheduleFlash('view-change', state)).toBe(false);
+      expect(scheduler.canScheduleFlash('view-change', state)).toBe(true);
     });
 
     it('should block flash when already active', () => {

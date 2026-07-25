@@ -16,6 +16,7 @@
   pointer-events: none; /* ensure overlays never catch clicks */
   contain: paint;
   will-change: opacity, transform;
+  animation-fill-mode: forwards;
 }
 
 

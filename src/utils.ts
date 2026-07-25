@@ -106,11 +106,13 @@ export function shouldAllowFlash(
 	isFlashActive: boolean,
 	hasPendingFlash: boolean
 ): boolean {
-	if (isFenceActive) {
+	const isViewTrigger = trigger === 'view-change' || trigger === 'layout-change';
+
+	if (isFenceActive && !isViewTrigger) {
 		return false;
 	}
 	
-	if (isFlashActive || hasPendingFlash) {
+	if (!isViewTrigger && (isFlashActive || hasPendingFlash)) {
 		return false;
 	}
 	
