@@ -22,6 +22,9 @@ export function getPreciseCursorCoords(
   pos: number,
   assoc: number = -1,
 ): { top: number; bottom: number; left: number; right: number } | null {
+  const defaultHeight = view.defaultLineHeight || 20;
+  const maxLineHeight = defaultHeight * 2.5;
+
   if (typeof window !== "undefined") {
     const sel = window.getSelection();
     if (sel && sel.rangeCount > 0) {
@@ -39,10 +42,18 @@ export function getPreciseCursorCoords(
             range.startContainer &&
             range.startContainer.parentElement
           ) {
-            rect = range.startContainer.parentElement.getBoundingClientRect();
+            const parentEl = range.startContainer.parentElement;
+            if (
+              !parentEl.classList.contains("cm-content") &&
+              !parentEl.classList.contains("cm-sizer") &&
+              !parentEl.classList.contains("cm-scroller") &&
+              !parentEl.classList.contains("cm-editor")
+            ) {
+              rect = parentEl.getBoundingClientRect();
+            }
           }
         }
-        if (rect && rect.height > 0) {
+        if (rect && rect.height > 0 && rect.height <= maxLineHeight) {
           return {
             top: rect.top,
             bottom: rect.bottom,
@@ -54,7 +65,19 @@ export function getPreciseCursorCoords(
     }
   }
 
-  return view.coordsAtPos(pos, assoc as 1 | -1);
+  const rawCoords = view.coordsAtPos(pos, assoc as 1 | -1);
+  if (!rawCoords) return null;
+
+  let top = rawCoords.top;
+  let bottom = rawCoords.bottom;
+  const left = rawCoords.left;
+  const right = rawCoords.right;
+
+  if (bottom - top > maxLineHeight || bottom <= top) {
+    bottom = top + defaultHeight;
+  }
+
+  return { top, bottom, left, right };
 }
 
 /**
@@ -578,11 +601,17 @@ export class CustomCursorViewPlugin {
           );
         }
 
+        const defaultLineHeight = view.defaultLineHeight || 20;
+        let cursorHeight = coordsBottom - coordsTop;
+        if (cursorHeight > defaultLineHeight * 2.5 || cursorHeight <= 0) {
+          cursorHeight = defaultLineHeight;
+        }
+
         return {
           top: coordsTop - scrollRect.top + scrollDOM.scrollTop,
           left: coordsLeft - scrollRect.left + scrollDOM.scrollLeft,
           width: charWidth, // 0 for bar/thinbar (width handled in write)
-          height: coordsBottom - coordsTop,
+          height: cursorHeight,
           color: cursorColor,
           char: char,
           contrastColor: contrastColor,
@@ -1793,7 +1822,11 @@ export default class VisibleCursorPlugin extends Plugin {
     const scrollTop = scrollDOM ? scrollDOM.scrollTop : 0;
     const scrollLeft = scrollDOM ? scrollDOM.scrollLeft : 0;
 
-    const lineHeight = (coords.bottom - coords.top) || editorView.defaultLineHeight;
+    const defaultHeight = editorView.defaultLineHeight || 20;
+    let lineHeight = (coords.bottom - coords.top) || defaultHeight;
+    if (lineHeight > defaultHeight * 2.5 || lineHeight <= 0) {
+      lineHeight = defaultHeight;
+    }
     const { color, opacity } = this.colorProvider.getColor(this.settings);
     const rgb = this.colorProvider.resolveColorToRgb(color);
     const fontSize = parseFloat(getComputedStyle(editorElement).fontSize) || 16;
@@ -1843,7 +1876,11 @@ export default class VisibleCursorPlugin extends Plugin {
     const scrollTop = scrollDOM ? scrollDOM.scrollTop : 0;
     const scrollLeft = scrollDOM ? scrollDOM.scrollLeft : 0;
 
-    const lineHeight = (coords.bottom - coords.top) || editorView.defaultLineHeight;
+    const defaultHeight = editorView.defaultLineHeight || 20;
+    let lineHeight = (coords.bottom - coords.top) || defaultHeight;
+    if (lineHeight > defaultHeight * 2.5 || lineHeight <= 0) {
+      lineHeight = defaultHeight;
+    }
     const { color, opacity } = this.colorProvider.getColor(this.settings);
     const rgb = this.colorProvider.resolveColorToRgb(color);
     const fontSize = parseFloat(getComputedStyle(editorElement).fontSize) || 16;
@@ -1893,7 +1930,11 @@ export default class VisibleCursorPlugin extends Plugin {
     const scrollTop = scrollDOM ? scrollDOM.scrollTop : 0;
     const scrollLeft = scrollDOM ? scrollDOM.scrollLeft : 0;
 
-    const lineHeight = (coords.bottom - coords.top) || editorView.defaultLineHeight;
+    const defaultHeight = editorView.defaultLineHeight || 20;
+    let lineHeight = (coords.bottom - coords.top) || defaultHeight;
+    if (lineHeight > defaultHeight * 2.5 || lineHeight <= 0) {
+      lineHeight = defaultHeight;
+    }
     const cursorX = coords.left - editorRect.left;
     const editorWidth = editorRect.width;
     const cursorPercent = (cursorX / editorWidth) * 100;
