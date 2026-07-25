@@ -12,6 +12,52 @@ import { FlashScheduler, type FlashState } from "./src/services/flashScheduler";
 import { FlashRenderer } from "./src/services/flashRenderer";
 
 /**
+ * Helper to get precise cursor coordinates.
+ * Uses browser DOM Selection range when active inside view.scrollDOM, which accurately
+ * measures line/cell bounding rects inside CM6 widgets (such as Live Preview tables).
+ * Falls back to view.coordsAtPos(pos, assoc).
+ */
+export function getPreciseCursorCoords(
+  view: EditorView,
+  pos: number,
+  assoc: number = -1,
+): { top: number; bottom: number; left: number; right: number } | null {
+  if (typeof window !== "undefined") {
+    const sel = window.getSelection();
+    if (sel && sel.rangeCount > 0) {
+      const range = sel.getRangeAt(0);
+      if (
+        view.scrollDOM &&
+        view.scrollDOM.contains(range.commonAncestorContainer)
+      ) {
+        let rect = range.getBoundingClientRect();
+        if (rect.height === 0) {
+          const clientRects = range.getClientRects();
+          if (clientRects.length > 0) {
+            rect = clientRects[0];
+          } else if (
+            range.startContainer &&
+            range.startContainer.parentElement
+          ) {
+            rect = range.startContainer.parentElement.getBoundingClientRect();
+          }
+        }
+        if (rect && rect.height > 0) {
+          return {
+            top: rect.top,
+            bottom: rect.bottom,
+            left: rect.left,
+            right: rect.right,
+          };
+        }
+      }
+    }
+  }
+
+  return view.coordsAtPos(pos, assoc as 1 | -1);
+}
+
+/**
  * Custom cursor rendering, mirroring the codemirror-emacs BlockCursorPlugin pattern.
  *
  * Creates a cursor layer div in view.scrollDOM and positions a cursor element
@@ -252,7 +298,7 @@ export class CustomCursorViewPlugin {
           assocForCoords = sel.assoc || -1;
         }
 
-        const rawCoords = view.coordsAtPos(visualPos, assocForCoords as 1 | -1);
+        const rawCoords = getPreciseCursorCoords(view, visualPos, assocForCoords);
         if (!rawCoords) {
           this.lastCursorViewportTop = null;
           this.lastCursorViewportLeft = null;
@@ -785,6 +831,14 @@ export default class VisibleCursorPlugin extends Plugin {
       scroll: (event: Event, view: EditorView) => {
         if (!plugin.settings.flashOnWindowScrolls) return false;
 
+        if (!plugin.isCursorInViewport(view)) {
+          if (plugin.scrollDebounceTimer) {
+            window.clearTimeout(plugin.scrollDebounceTimer);
+            plugin.scrollDebounceTimer = null;
+          }
+          return false;
+        }
+
         const currentScrollPos = view.scrollDOM.scrollTop;
         const scrollDelta = Math.abs(
           currentScrollPos - plugin.lastScrollPosition,
@@ -802,7 +856,9 @@ export default class VisibleCursorPlugin extends Plugin {
             plugin.scrollDebounceTimer = null;
             return;
           }
-          plugin.scheduleFlash("scroll", false);
+          if (plugin.isCursorInViewport(view)) {
+            plugin.scheduleFlash("scroll", false);
+          }
           plugin.scrollDebounceTimer = null;
         }, debounceTime);
 
@@ -1699,24 +1755,45 @@ export default class VisibleCursorPlugin extends Plugin {
     }, this.settings.flashDuration);
   }
 
+  /** Check if the cursor is within the visible bounds of the scroll viewport */
+  isCursorInViewport(editorView: EditorView): boolean {
+    const coords = this.cursorCoords(editorView);
+    if (!coords) return false;
+    const scrollDOM = editorView.scrollDOM;
+    if (!scrollDOM) return true;
+    const scrollRect = scrollDOM.getBoundingClientRect();
+    if (scrollRect.height === 0 || scrollRect.width === 0) return true;
+    return (
+      coords.bottom >= scrollRect.top - 2 && coords.top <= scrollRect.bottom + 2
+    );
+  }
+
   /** Get cursor coords using selection.assoc for correct soft-wrap boundary handling */
   private cursorCoords(
     editorView: EditorView,
   ): { top: number; bottom: number; left: number; right: number } | null {
-    const cursor = this.app.workspace.getActiveViewOfType(MarkdownView)?.editor;
-    if (!cursor) return null;
-    const pos = (cursor as any).posToOffset(cursor.getCursor());
-    const assoc = editorView.state.selection.main.assoc || -1;
-    return editorView.coordsAtPos(pos, assoc);
+    if (!editorView || !editorView.state || !editorView.state.selection) return null;
+    const sel = editorView.state.selection.main;
+    const pos = sel.head;
+    const assoc = sel.assoc || -1;
+    return getPreciseCursorCoords(editorView, pos, assoc);
   }
 
   showLineFlash(editorView: EditorView) {
+    if (!this.isCursorInViewport(editorView)) return;
     const coords = this.cursorCoords(editorView);
     if (!coords) return;
 
     const editorElement = editorView.contentDOM;
     const editorRect = editorElement.getBoundingClientRect();
-    const lineHeight = editorView.defaultLineHeight;
+    const scrollDOM = editorView.scrollDOM;
+    const scrollRect = scrollDOM
+      ? scrollDOM.getBoundingClientRect()
+      : editorRect;
+    const scrollTop = scrollDOM ? scrollDOM.scrollTop : 0;
+    const scrollLeft = scrollDOM ? scrollDOM.scrollLeft : 0;
+
+    const lineHeight = (coords.bottom - coords.top) || editorView.defaultLineHeight;
     const { color, opacity } = this.colorProvider.getColor(this.settings);
     const rgb = this.colorProvider.resolveColorToRgb(color);
     const fontSize = parseFloat(getComputedStyle(editorElement).fontSize) || 16;
@@ -1727,26 +1804,46 @@ export default class VisibleCursorPlugin extends Plugin {
       (highlightDistance / editorRect.width) * 100,
     );
 
-    const position = { left: editorRect.left, top: coords.top };
+    const position = {
+      left: editorRect.left - scrollRect.left + scrollLeft,
+      top: coords.top - scrollRect.top + scrollTop,
+    };
     const size = { width: editorRect.width, height: lineHeight };
+    const positionMode = scrollDOM ? "absolute" : "fixed";
+    const parent = scrollDOM || document.body;
+
     const cssText = this.flashRenderer.buildLeftGradientCSS(
       position,
       size,
       rgb,
       opacity,
       highlightPercent,
-      this.settings.flashDuration
+      this.settings.flashDuration,
+      positionMode,
     );
-    this.flashRenderer.render("left", cssText, this.settings.flashDuration);
+    this.flashRenderer.render(
+      "left",
+      cssText,
+      this.settings.flashDuration,
+      parent,
+    );
   }
 
   showLineFlashRightToLeft(editorView: EditorView) {
+    if (!this.isCursorInViewport(editorView)) return;
     const coords = this.cursorCoords(editorView);
     if (!coords) return;
 
     const editorElement = editorView.contentDOM;
     const editorRect = editorElement.getBoundingClientRect();
-    const lineHeight = editorView.defaultLineHeight;
+    const scrollDOM = editorView.scrollDOM;
+    const scrollRect = scrollDOM
+      ? scrollDOM.getBoundingClientRect()
+      : editorRect;
+    const scrollTop = scrollDOM ? scrollDOM.scrollTop : 0;
+    const scrollLeft = scrollDOM ? scrollDOM.scrollLeft : 0;
+
+    const lineHeight = (coords.bottom - coords.top) || editorView.defaultLineHeight;
     const { color, opacity } = this.colorProvider.getColor(this.settings);
     const rgb = this.colorProvider.resolveColorToRgb(color);
     const fontSize = parseFloat(getComputedStyle(editorElement).fontSize) || 16;
@@ -1757,26 +1854,46 @@ export default class VisibleCursorPlugin extends Plugin {
       (highlightDistance / editorRect.width) * 100,
     );
 
-    const position = { left: editorRect.left, top: coords.top };
+    const position = {
+      left: editorRect.left - scrollRect.left + scrollLeft,
+      top: coords.top - scrollRect.top + scrollTop,
+    };
     const size = { width: editorRect.width, height: lineHeight };
+    const positionMode = scrollDOM ? "absolute" : "fixed";
+    const parent = scrollDOM || document.body;
+
     const cssText = this.flashRenderer.buildRightGradientCSS(
       position,
       size,
       rgb,
       opacity,
       highlightPercent,
-      this.settings.flashDuration
+      this.settings.flashDuration,
+      positionMode,
     );
-    this.flashRenderer.render("right", cssText, this.settings.flashDuration);
+    this.flashRenderer.render(
+      "right",
+      cssText,
+      this.settings.flashDuration,
+      parent,
+    );
   }
 
   showCursorCenteredFlash(editorView: EditorView) {
+    if (!this.isCursorInViewport(editorView)) return;
     const coords = this.cursorCoords(editorView);
     if (!coords) return;
 
     const editorElement = editorView.contentDOM;
     const editorRect = editorElement.getBoundingClientRect();
-    const lineHeight = editorView.defaultLineHeight;
+    const scrollDOM = editorView.scrollDOM;
+    const scrollRect = scrollDOM
+      ? scrollDOM.getBoundingClientRect()
+      : editorRect;
+    const scrollTop = scrollDOM ? scrollDOM.scrollTop : 0;
+    const scrollLeft = scrollDOM ? scrollDOM.scrollLeft : 0;
+
+    const lineHeight = (coords.bottom - coords.top) || editorView.defaultLineHeight;
     const cursorX = coords.left - editorRect.left;
     const editorWidth = editorRect.width;
     const cursorPercent = (cursorX / editorWidth) * 100;
@@ -1788,8 +1905,14 @@ export default class VisibleCursorPlugin extends Plugin {
     const spreadDistance = (this.settings.flashSize / 2) * charWidth;
     const spreadPercent = (spreadDistance / editorRect.width) * 100;
 
-    const position = { left: editorRect.left, top: coords.top };
+    const position = {
+      left: editorRect.left - scrollRect.left + scrollLeft,
+      top: coords.top - scrollRect.top + scrollTop,
+    };
     const size = { width: editorRect.width, height: lineHeight };
+    const positionMode = scrollDOM ? "absolute" : "fixed";
+    const parent = scrollDOM || document.body;
+
     const cssText = this.flashRenderer.buildCenteredGradientCSS(
       position,
       size,
@@ -1797,9 +1920,15 @@ export default class VisibleCursorPlugin extends Plugin {
       opacity,
       cursorPercent,
       spreadPercent,
-      this.settings.flashDuration
+      this.settings.flashDuration,
+      positionMode,
     );
-    this.flashRenderer.render("centered", cssText, this.settings.flashDuration);
+    this.flashRenderer.render(
+      "centered",
+      cssText,
+      this.settings.flashDuration,
+      parent,
+    );
   }
 
   refreshDecorations() {

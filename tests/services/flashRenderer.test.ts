@@ -67,9 +67,25 @@ describe('FlashRenderer Service', () => {
 
       expect(document.body.appendChild).toHaveBeenCalledTimes(3);
     });
+
+    it('should append to custom parent element when provided', () => {
+      const customParent = { appendChild: vi.fn() } as any;
+
+      renderer.render('left', 'position: absolute;', 500, customParent);
+
+      expect(customParent.appendChild).toHaveBeenCalledTimes(1);
+    });
   });
 
   describe('buildLeftGradientCSS', () => {
+    it('should build CSS with position: absolute when specified', () => {
+      const position = { left: 10, top: 20 };
+      const size = { width: 400, height: 20 };
+      const rgb = { r: 100, g: 150, b: 255 };
+      const css = renderer.buildLeftGradientCSS(position, size, rgb, 0.8, 50, 500, 'absolute');
+
+      expect(css).toContain('position: absolute');
+    });
     it('should build CSS for left-to-right gradient', () => {
       const position = { left: 100, top: 200 };
       const size = { width: 800, height: 24 };

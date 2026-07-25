@@ -10,13 +10,20 @@ export class FlashRenderer {
    * @param mode - Gradient direction: 'left', 'right', or 'centered'
    * @param cssText - Complete CSS text for the flash element
    * @param duration - How long to display the flash in milliseconds
+   * @param parentElement - Optional element to append flash to (defaults to document.body)
    */
-  render(mode: 'left' | 'right' | 'centered', cssText: string, duration: number): void {
+  render(
+    mode: 'left' | 'right' | 'centered',
+    cssText: string,
+    duration: number,
+    parentElement?: HTMLElement
+  ): void {
     const element = document.createElement('div');
     element.className = 'obsidian-flash-line';
     element.style.cssText = cssText;
 
-    document.body.appendChild(element);
+    const parent = parentElement || document.body;
+    parent.appendChild(element);
     window.setTimeout(() => {
       element.remove();
     }, duration);
@@ -32,12 +39,13 @@ export class FlashRenderer {
     rgb: { r: number; g: number; b: number },
     opacity: number,
     highlightPercent: number,
-    duration: number
+    duration: number,
+    positionMode: 'fixed' | 'absolute' = 'fixed'
   ): string {
     const colorStop = `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${opacity})`;
 
     return `
-      position: fixed;
+      position: ${positionMode};
       left: ${position.left}px;
       top: ${position.top}px;
       width: ${size.width}px;
@@ -64,12 +72,13 @@ export class FlashRenderer {
     rgb: { r: number; g: number; b: number },
     opacity: number,
     highlightPercent: number,
-    duration: number
+    duration: number,
+    positionMode: 'fixed' | 'absolute' = 'fixed'
   ): string {
     const colorStop = `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${opacity})`;
 
     return `
-      position: fixed;
+      position: ${positionMode};
       left: ${position.left}px;
       top: ${position.top}px;
       width: ${size.width}px;
@@ -97,7 +106,8 @@ export class FlashRenderer {
     opacity: number,
     cursorPercent: number,
     spreadPercent: number,
-    duration: number
+    duration: number,
+    positionMode: 'fixed' | 'absolute' = 'fixed'
   ): string {
     const peakOpacity = opacity;
     const fadeOpacity = opacity * 0.75;
@@ -105,7 +115,7 @@ export class FlashRenderer {
     const rightEdge = Math.min(100, cursorPercent + spreadPercent);
 
     return `
-      position: fixed;
+      position: ${positionMode};
       left: ${position.left}px;
       top: ${position.top}px;
       width: ${size.width}px;

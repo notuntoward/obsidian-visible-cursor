@@ -38,7 +38,19 @@ export class PluginSettingTab {
 }
 
 export class Setting {
+	settingEl = {
+		classList: {
+			add: () => {},
+			remove: () => {},
+			toggle: () => {}
+		}
+	};
+
 	constructor(_containerEl: unknown) {}
+
+	setDisabled(_disabled?: boolean): this {
+		return this;
+	}
 
 	setName(): this {
 		return this;
