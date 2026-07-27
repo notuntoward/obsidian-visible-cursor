@@ -1,4 +1,4 @@
-import { Plugin, MarkdownView } from "obsidian";
+import { Plugin, MarkdownView, WorkspaceLeaf } from "obsidian";
 import { EditorView, ViewPlugin, ViewUpdate, keymap } from "@codemirror/view";
 import { EditorSelection, Transaction, Prec } from "@codemirror/state";
 import {
@@ -861,6 +861,20 @@ export default class VisibleCursorPlugin extends Plugin {
       },
       scroll: (event: Event, view: EditorView) => {
         if (!plugin.settings.flashOnWindowScrolls) return false;
+        if (!view.hasFocus) return false;
+
+        const scrolledLeaf = plugin.getWorkspaceLeafForEditorView(view);
+        if (
+          !scrolledLeaf ||
+          scrolledLeaf.getContainer()?.win !==
+            plugin.getActiveLeafInFocusedWindow()?.getContainer()?.win
+        ) {
+          if (plugin.scrollDebounceTimer) {
+            window.clearTimeout(plugin.scrollDebounceTimer);
+            plugin.scrollDebounceTimer = null;
+          }
+          return false;
+        }
 
         if (!plugin.isCursorInViewport(view)) {
           if (plugin.scrollDebounceTimer) {
@@ -1753,11 +1767,68 @@ export default class VisibleCursorPlugin extends Plugin {
     return ((markdownView.editor as any).cm as EditorView) ?? null;
   }
 
-  showFlash() {
-    const view = this.app.workspace.getActiveViewOfType(MarkdownView);
-    if (!view || !view.editor) return;
+  /**
+   * Get the active leaf in the currently focused window. Falls back to
+   * app.workspace.activeLeaf when the focused window cannot be determined.
+   *
+   * This mirrors the canonical window/tab-group model from next-tab-group,
+   * which correctly identifies which editor surface actually has focus in
+   * multi-pane/multi-window Obsidian workspaces.
+   */
+  private getActiveLeafInFocusedWindow(): WorkspaceLeaf | null {
+    const globalActive = this.app.workspace.activeLeaf;
 
-    const editorView = this.getCMView(view);
+    if (typeof activeWindow === "undefined") {
+      return globalActive;
+    }
+
+    if (globalActive) {
+      const container = globalActive.getContainer();
+      if (container && container.win === activeWindow) {
+        return globalActive;
+      }
+    }
+
+    let leafInFocusedWindow: WorkspaceLeaf | null = null;
+    this.app.workspace.iterateAllLeaves((leaf) => {
+      if (leafInFocusedWindow) return;
+      const container = leaf.getContainer();
+      if (container && container.win === activeWindow) {
+        leafInFocusedWindow = leaf;
+      }
+    });
+
+    return leafInFocusedWindow ?? globalActive;
+  }
+
+  /**
+   * Map a CM6 EditorView back to its Obsidian WorkspaceLeaf. Used to determine
+   * which native window and tab group a scrolled/focused editor belongs to.
+   */
+  private getWorkspaceLeafForEditorView(
+    editorView: EditorView,
+  ): WorkspaceLeaf | null {
+    let matchingLeaf: WorkspaceLeaf | null = null;
+
+    this.app.workspace.iterateAllLeaves((leaf) => {
+      if (matchingLeaf) return;
+      if (!(leaf.view instanceof MarkdownView)) return;
+      const leafEditorView = this.getCMView(leaf.view);
+      if (leafEditorView === editorView) {
+        matchingLeaf = leaf;
+      }
+    });
+
+    return matchingLeaf;
+  }
+
+  showFlash() {
+    const leaf = this.getActiveLeafInFocusedWindow();
+    if (!leaf || !(leaf.view instanceof MarkdownView) || !leaf.view.editor) {
+      return;
+    }
+
+    const editorView = this.getCMView(leaf.view);
     if (!editorView) return;
 
     if (this.scrollDebounceTimer) {
