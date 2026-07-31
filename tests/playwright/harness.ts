@@ -84,6 +84,17 @@ const harness: VisibleCursorHarness = {
 		});
 		view.focus();
 	},
+	setSelection(anchor: number, head: number) {
+		view.dispatch({
+			selection: EditorSelection.single(anchor, head),
+			scrollIntoView: true
+		});
+		view.focus();
+	},
+	getCustomCursorText() {
+		const element = view.scrollDOM.querySelector('.visible-cursor-element') as HTMLElement | null;
+		return element ? element.textContent : null;
+	},
 	getDoc() {
 		return view.state.doc.toString();
 	},

@@ -87,3 +87,21 @@ test('block cursor on indented bullet retains normal width', async ({ page }) =>
 	expect((result.rect as HarnessRect).width).toBeLessThan(result.defaultWidth * 2.0);
 });
 
+test('expanding selection preserves the character text at selection start', async ({ page }) => {
+	await page.evaluate(() => {
+		const harness = window.__visibleCursorHarness;
+		if (!harness) throw new Error('Harness unavailable');
+		harness.setDoc('123456789', 0);
+		// Expand selection from position 0 ('1') to position 4 ('5')
+		harness.setSelection(0, 4);
+	});
+	await page.waitForTimeout(100);
+
+	const charText = await page.evaluate(() => {
+		return window.__visibleCursorHarness?.getCustomCursorText() ?? null;
+	});
+
+	// The block cursor positioned at selection start (pos 0) must display character '1', not '5'
+	expect(charText).toBe('1');
+});
+

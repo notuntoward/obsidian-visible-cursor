@@ -4,13 +4,14 @@ export type HarnessRect = {
 	width: number;
 	height: number;
 };
-
 export type VisibleCursorHarness = {
 	setDoc: (doc: string, cursorPos?: number) => void;
 	setCursor: (pos: number) => void;
+	setSelection: (anchor: number, head: number) => void;
 	getDoc: () => string;
 	getCursor: () => { head: number; assoc: number };
 	pressKey: (key: string) => Promise<void>;
+	getCustomCursorText: () => string | null;
 	getCustomCursorRect: () => HarnessRect | null;
 	getNativeCursorRect: () => HarnessRect | null;
 	getLineText: (lineNumber: number) => string | null;
