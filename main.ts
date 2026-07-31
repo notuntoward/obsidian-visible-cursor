@@ -282,7 +282,7 @@ export class CustomCursorViewPlugin {
         if (view.composing) return null;
 
         const sel = view.state.selection.main;
-        const pos = sel.head;
+        const pos = sel.empty ? sel.head : sel.from;
         const style = plugin.settings.customCursorStyle;
 
         // For the block cursor, createBlockCursorNavFilter() tracks state via
@@ -295,7 +295,6 @@ export class CustomCursorViewPlugin {
         let assocForCoords: number;
         if (style === "block") {
           const wrapState = plugin.blockWrapState;
-          const hiddenBoundaryState = plugin.hiddenBoundaryRenderState;
           if (wrapState && wrapState.logicalPos === pos) {
             // Explicit wrapState override from createBlockCursorNavFilter():
             // show block at the START of the continuation line (assoc=+1).
@@ -305,12 +304,6 @@ export class CustomCursorViewPlugin {
             // for ArrowRight).
             visualPos = wrapState.showPos;
             assocForCoords = wrapState.assoc;
-          } else if (
-            hiddenBoundaryState &&
-            hiddenBoundaryState.logicalPos === pos
-          ) {
-            visualPos = hiddenBoundaryState.showPos;
-            assocForCoords = hiddenBoundaryState.assoc;
           } else {
             // Default: sel.assoc.  End key, click, multi-char jumps, etc. all
             // arrive here with whatever assoc CM6 assigned — respected as-is.
@@ -523,8 +516,7 @@ export class CustomCursorViewPlugin {
               rightCoords !== null &&
               measuredWidthFromCoords !== null &&
               measuredWidthFromCoords <= 1) ||
-            (domInfo.offset ?? 0) === 0 ||
-            plugin.hiddenBoundaryRenderState?.logicalPos === pos;
+            (domInfo.offset ?? 0) === 0;
 
           if (shouldLogMeasurement) {
             debugMeasure("cursor-measure", {
@@ -711,11 +703,6 @@ export interface BlockWrapState {
   assoc: 1 | -1;
 }
 
-interface HiddenBoundaryRenderState {
-  logicalPos: number;
-  showPos: number;
-  assoc: 1 | -1;
-}
 
 export default class VisibleCursorPlugin extends Plugin {
   settings: VisibleCursorPluginSettings;
@@ -740,7 +727,6 @@ export default class VisibleCursorPlugin extends Plugin {
 
   // Shared state for block cursor wrap navigation
   blockWrapState: BlockWrapState | null = null;
-  hiddenBoundaryRenderState: HiddenBoundaryRenderState | null = null;
 
   // Services
   colorProvider: ColorProvider; // public so CustomCursorViewPlugin can read it
@@ -943,9 +929,7 @@ export default class VisibleCursorPlugin extends Plugin {
       console.log("[visible-cursor]", label, data);
     };
 
-    const clearHiddenBoundaryRenderState = () => {
-      plugin.hiddenBoundaryRenderState = null;
-    };
+
 
     // ─────────────────────────────────────────────────────────────────────
     // Implicit state machine for block cursor navigation at soft-wrap boundaries
@@ -1162,7 +1146,7 @@ export default class VisibleCursorPlugin extends Plugin {
       // rather than trying to apply our wrap-correction logic to it.
 
       const pos = sel.head;
-      clearHiddenBoundaryRenderState();
+
 
       if (plugin.blockWrapState && plugin.blockWrapState.logicalPos === pos) {
         plugin.blockWrapState = null;
@@ -1187,7 +1171,7 @@ export default class VisibleCursorPlugin extends Plugin {
 
       plugin.blockWrapState = null;
       pendingDownFromWrapPos = null;
-      clearHiddenBoundaryRenderState();
+
       return false;
     };
 
@@ -1207,7 +1191,7 @@ export default class VisibleCursorPlugin extends Plugin {
       plugin.blockWrapState = null;
       pendingDownFromWrapPos = null;
       plugin.lastKey = "Home";
-      clearHiddenBoundaryRenderState();
+
       return false;
     };
 
@@ -1241,7 +1225,7 @@ export default class VisibleCursorPlugin extends Plugin {
       });
 
       if (!allowWrappedDown) {
-        clearHiddenBoundaryRenderState();
+  
         return false;
       }
 
@@ -1255,7 +1239,7 @@ export default class VisibleCursorPlugin extends Plugin {
 
       if (!target) {
         plugin.blockWrapState = null;
-        clearHiddenBoundaryRenderState();
+  
         return false;
       }
 
@@ -1267,7 +1251,7 @@ export default class VisibleCursorPlugin extends Plugin {
         showPos: target.pos,
         assoc: 1,
       };
-      clearHiddenBoundaryRenderState();
+
       view.dispatch({
         selection: EditorSelection.cursor(target.pos, 1),
         scrollIntoView: true,
@@ -1304,7 +1288,7 @@ export default class VisibleCursorPlugin extends Plugin {
 
         if (!target) {
           plugin.blockWrapState = null;
-          clearHiddenBoundaryRenderState();
+    
           return false; // top of document — let CM6 handle
         }
 
@@ -1318,7 +1302,7 @@ export default class VisibleCursorPlugin extends Plugin {
         } else {
           plugin.blockWrapState = null;
           pendingDownFromWrapPos = null;
-          clearHiddenBoundaryRenderState();
+    
         }
 
         // Tag with 'visible-cursor.wrap-correction' so navCorrection's early-exit
@@ -1386,7 +1370,7 @@ export default class VisibleCursorPlugin extends Plugin {
       if (update.state.selection.ranges.length > 1) {
         plugin.blockWrapState = null;
         pendingDownFromWrapPos = null;
-        clearHiddenBoundaryRenderState();
+  
         return;
       }
 
@@ -1415,15 +1399,7 @@ export default class VisibleCursorPlugin extends Plugin {
         }
       }
 
-      if (plugin.hiddenBoundaryRenderState !== null) {
-        if (
-          update.docChanged ||
-          !sel.empty ||
-          sel.head !== plugin.hiddenBoundaryRenderState.logicalPos
-        ) {
-          clearHiddenBoundaryRenderState();
-        }
-      }
+
 
       if (pendingDownFromWrapPos !== null) {
         if (update.docChanged || !sel.empty) {
@@ -1442,30 +1418,7 @@ export default class VisibleCursorPlugin extends Plugin {
       if (update.transactions.some((t) => t.isUserEvent("emacs.moveToEnd")))
         return;
 
-      if (
-        Math.abs(pos - oldSel.head) > 1 &&
-        oldSel.head > pos &&
-        oldSel.assoc >= 0 &&
-        sel.assoc === 0
-      ) {
-        const renderTarget = findNextRenderableCell(update.view, pos);
-        if (renderTarget) {
-          plugin.hiddenBoundaryRenderState = {
-            logicalPos: pos,
-            showPos: renderTarget.pos,
-            assoc: renderTarget.assoc,
-          };
-          debugNav("navCorrection:hidden-boundary-render", {
-            oldHead: oldSel.head,
-            newHead: pos,
-            oldAssoc: oldSel.assoc,
-            newAssoc: sel.assoc,
-            renderTarget,
-          });
-        } else {
-          clearHiddenBoundaryRenderState();
-        }
-      }
+
 
       // 1. Handle moving FORWARD by 1 char from a wrap boundary (e.g. Emacs forward char after End key)
       if (pos - oldSel.head === 1) {

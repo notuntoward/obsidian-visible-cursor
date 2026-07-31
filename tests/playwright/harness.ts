@@ -31,7 +31,6 @@ function createPluginStub() {
 		flashActive: true,
 		isComposing: false,
 		blockWrapState: null as null | { logicalPos: number; showPos: number; assoc: 1 | -1 },
-		hiddenBoundaryRenderState: null as null | { logicalPos: number; showPos: number; assoc: 1 | -1 },
 		colorProvider: new ColorProvider()
 	};
 }
