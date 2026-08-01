@@ -162,7 +162,7 @@ describe('home navigation wrap diagnostics', () => {
 		expect(view.dispatch).not.toHaveBeenCalled();
 	});
 
-	it('does not dispatch correction for emacs.moveToStart jumps', () => {
+	it('sets lastUserEvent for emacs.moveToBeginning jumps (correction handled by buildMeasureReq)', () => {
 		const plugin = makePlugin();
 		const view = makeView(
 			{
@@ -175,7 +175,29 @@ describe('home navigation wrap diagnostics', () => {
 		);
 
 		const navCorrection = getNavCorrection(plugin);
-		navCorrection(makeUpdate(view, 40, -1, 8, -1, ['emacs.moveToStart']));
+		navCorrection(makeUpdate(view, 40, -1, 8, -1, ['emacs.moveToBeginning']));
+
+		// navCorrection no longer dispatches a correction (avoids updateListener side-effects).
+		// Instead it sets lastUserEvent so buildMeasureReq can apply a rendering-only override.
+		expect(view.dispatch).not.toHaveBeenCalled();
+		expect(plugin.blockWrapState).toBeNull();
+		expect((plugin as { lastUserEvent: string }).lastUserEvent).toBe('home');
+	});
+
+	it('does not dispatch correction for emacs.moveToBeginning jumps landing on non-soft-wrap positions', () => {
+		const plugin = makePlugin();
+		const view = makeView(
+			{
+				'40:-1': { top: 0, bottom: 20, left: 0, right: 8 },
+				'8:-1': { top: 60, bottom: 80, left: 0, right: 8 },
+				'8:1': { top: 60, bottom: 80, left: 0, right: 8 }
+			},
+			8,
+			-1
+		);
+
+		const navCorrection = getNavCorrection(plugin);
+		navCorrection(makeUpdate(view, 40, -1, 8, -1, ['emacs.moveToBeginning']));
 
 		expect(view.dispatch).not.toHaveBeenCalled();
 		expect(plugin.blockWrapState).toBeNull();

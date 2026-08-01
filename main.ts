@@ -21,11 +21,15 @@ export function getPreciseCursorCoords(
   view: EditorView,
   pos: number,
   assoc: number = -1,
+  forceCoordAPI: boolean = false,
 ): { top: number; bottom: number; left: number; right: number } | null {
   const defaultHeight = view.defaultLineHeight || 20;
   const maxLineHeight = defaultHeight * 2.5;
 
-  if (typeof window !== "undefined") {
+  // When forceCoordAPI is true (e.g. blockWrapState override), skip the native
+  // selection path because the browser DOM selection may not yet reflect a
+  // corrective dispatch and would return stale end-of-previous-line coords.
+  if (!forceCoordAPI && typeof window !== "undefined") {
     const sel = window.getSelection();
     if (sel && sel.rangeCount > 0) {
       const range = sel.getRangeAt(0);
@@ -293,28 +297,48 @@ export class CustomCursorViewPlugin {
         // Bar / thinbar use sel.assoc as-is (standard Obsidian behaviour).
         let visualPos: number = pos;
         let assocForCoords: number;
+        let forceCoordAPI = false;
         if (style === "block") {
           const wrapState = plugin.blockWrapState;
           if (wrapState && wrapState.logicalPos === pos) {
             // Explicit wrapState override from createBlockCursorNavFilter():
             // show block at the START of the continuation line (assoc=+1).
-            // This fires when a single-step ArrowRight arrived at the soft-wrap
-            // boundary (set by navCorrection updateListener, which runs synchronously
-            // before requestMeasure processes, so this branch always fires first
-            // for ArrowRight).
+            // This fires when ArrowRight arrives at a soft-wrap boundary.
             visualPos = wrapState.showPos;
             assocForCoords = wrapState.assoc;
+            forceCoordAPI = true;
+            plugin.lastUserEvent = ""; // consume so it doesn't interfere
           } else {
-            // Default: sel.assoc.  End key, click, multi-char jumps, etc. all
-            // arrive here with whatever assoc CM6 assigned — respected as-is.
-            assocForCoords = sel.assoc || -1;
+            // Rendering-only Home/emacs.moveToBeginning override:
+            // The native browser selection (window.getSelection()) lags behind
+            // CM6 transactions, so for any Home/line-start move we bypass it
+            // and go straight to view.coordsAtPos. If the destination is also
+            // a soft-wrap boundary, we use assoc=1 so the block cursor renders
+            // at the START of the lower visual line rather than the END of the
+            // upper one. For a regular line start (non-soft-wrap), assoc doesn't
+            // matter but we still skip the stale native selection.
+            const lastEvent = plugin.lastUserEvent;
+            plugin.lastUserEvent = ""; // consume immediately
+            if (lastEvent === "home") {
+              const cb = view.coordsAtPos(pos, -1);
+              const ca = view.coordsAtPos(pos, 1);
+              const isSoftWrapBoundary =
+                !!(cb && ca && Math.abs(cb.top - ca.top) > view.defaultLineHeight * 0.3);
+              assocForCoords = isSoftWrapBoundary ? 1 : (sel.assoc || -1);
+              forceCoordAPI = true;
+            } else {
+              // Default: sel.assoc.  End key, click, multi-char jumps, etc. all
+              // arrive here with whatever assoc CM6 assigned — respected as-is.
+              assocForCoords = sel.assoc || -1;
+            }
           }
         } else {
           // Bar / thinbar: use sel.assoc directly (standard Obsidian behaviour)
+          plugin.lastUserEvent = ""; // consume so it doesn't accumulate
           assocForCoords = sel.assoc || -1;
         }
 
-        const rawCoords = getPreciseCursorCoords(view, visualPos, assocForCoords);
+        const rawCoords = getPreciseCursorCoords(view, visualPos, assocForCoords, forceCoordAPI);
         if (!rawCoords) {
           this.lastCursorViewportTop = null;
           this.lastCursorViewportLeft = null;
@@ -727,6 +751,10 @@ export default class VisibleCursorPlugin extends Plugin {
 
   // Shared state for block cursor wrap navigation
   blockWrapState: BlockWrapState | null = null;
+  // Tracks the last horizontal-move user event so buildMeasureReq can
+  // apply a rendering-only assoc override without dispatching a correction.
+  // Set by navCorrection; consumed (and cleared) by buildMeasureReq.
+  lastUserEvent: string = "";
 
   // Services
   colorProvider: ColorProvider; // public so CustomCursorViewPlugin can read it
@@ -1357,7 +1385,7 @@ export default class VisibleCursorPlugin extends Plugin {
         lastKey: plugin.lastKey,
         blockWrapState: plugin.blockWrapState,
         transactions: update.transactions.map((t) => ({
-          home: t.isUserEvent("emacs.moveToStart"),
+          home: t.isUserEvent("emacs.moveToBeginning"),
           end: t.isUserEvent("emacs.moveToEnd"),
           pointer: t.isUserEvent("select.pointer"),
           wrapCorrection: t.isUserEvent("visible-cursor.wrap-correction"),
@@ -1417,6 +1445,23 @@ export default class VisibleCursorPlugin extends Plugin {
         return;
       if (update.transactions.some((t) => t.isUserEvent("emacs.moveToEnd")))
         return;
+
+      // emacs.moveToBeginning (Emacs: move to beginning of line) is a horizontal
+      // jump that can be any size (1 char or the full line length), so we handle
+      // it here before the ±1 and large-move guards to guarantee it always sets
+      // lastUserEvent regardless of jump size.
+      if (update.transactions.some((t) => t.isUserEvent("emacs.moveToBeginning"))) {
+        debugNav("navCorrection:home-move", {
+          consumedKey: plugin.lastKey,
+          oldHead: oldSel.head,
+          newHead: pos,
+        });
+        plugin.lastKey = "";
+        plugin.lastUserEvent = "home";
+        plugin.blockWrapState = null;
+        pendingDownFromWrapPos = null;
+        return;
+      }
 
 
 
@@ -1481,29 +1526,48 @@ export default class VisibleCursorPlugin extends Plugin {
           newHead: pos,
           consumedKey,
         });
-        // If the user pressed End or Home, do NOT apply vertical corrections
-        // because they are horizontal movements that can look like vertical ones
-        if (consumedKey === "End" || consumedKey === "Home") {
-          debugNav("navCorrection:skip-horizontal-key", {
+        const isHomeMove =
+          consumedKey === "Home" ||
+          update.transactions.some(
+            (t) =>
+              t.isUserEvent("emacs.moveToBeginning") ||
+              t.isUserEvent("selectLineStart") ||
+              t.isUserEvent("selectLineBoundaryForward") ||
+              t.isUserEvent("selectLineBoundaryBackward"),
+          );
+
+        const isEndMove =
+          consumedKey === "End" ||
+          update.transactions.some(
+            (t) =>
+              t.isUserEvent("emacs.moveToEnd") ||
+              t.isUserEvent("selectLineEnd"),
+          );
+
+        if (isEndMove) {
+          debugNav("navCorrection:skip-end-move", {
             consumedKey,
             oldHead: oldSel.head,
             newHead: pos,
           });
+          plugin.blockWrapState = null;
+          plugin.lastUserEvent = "";
+          pendingDownFromWrapPos = null;
           return;
         }
 
-        // Also ignore emacs.moveToEnd and emacs.moveToStart which are horizontal
-        if (
-          update.transactions.some(
-            (t) =>
-              t.isUserEvent("emacs.moveToEnd") ||
-              t.isUserEvent("emacs.moveToStart"),
-          )
-        ) {
-          debugNav("navCorrection:skip-emacs-move", {
+        if (isHomeMove) {
+          debugNav("navCorrection:home-move", {
+            consumedKey,
             oldHead: oldSel.head,
             newHead: pos,
           });
+          // Record event for buildMeasureReq to use as a rendering-only
+          // assoc override (avoids dispatching from an updateListener, which
+          // caused side-effects on pendingDownFromWrapPos / End key).
+          plugin.lastUserEvent = "home";
+          plugin.blockWrapState = null;
+          pendingDownFromWrapPos = null;
           return;
         }
 

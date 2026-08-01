@@ -105,3 +105,51 @@ test('expanding selection preserves the character text at selection start', asyn
 	expect(charText).toBe('1');
 });
 
+test('emacs.moveToBeginning on soft-wrapped line sets blockWrapState for visual line start', async ({ page }) => {
+	const docText = 'From here, Garmin was the 2nd most accurate for bodyfat (0.5% from DEXA) but said to rely too much on non-bioelectric info like your age, etc….; Withings the most accurate (0.1% from DEXA)';
+
+	const result = await page.evaluate((text) => {
+		const host = document.querySelector('.cm-editor-host') as HTMLElement;
+		if (host) host.style.width = '300px';
+
+		const harness = window.__visibleCursorHarness;
+		if (!harness) throw new Error('Harness unavailable');
+		harness.setDoc(text, text.length);
+
+		const view = harness.getView() as import('@codemirror/view').EditorView;
+		// Find a position that is actually a soft wrap boundary
+		let softWrapPos = -1;
+		for (let p = 1; p < text.length - 1; p++) {
+			const c1 = view.coordsAtPos(p, -1);
+			const c2 = view.coordsAtPos(p, 1);
+			if (c1 && c2 && Math.abs(c1.top - c2.top) > 5) {
+				softWrapPos = p;
+				break;
+			}
+		}
+
+		if (softWrapPos !== -1) {
+			// Record the expected visual line start top coordinate
+			const expectedTop = view.coordsAtPos(softWrapPos, 1)?.top ?? -1;
+			harness.dispatchEmacsMoveToStart(softWrapPos);
+			return { softWrapPos, expectedTop };
+		}
+		return { softWrapPos, expectedTop: -1 };
+	}, docText);
+
+	expect(result.softWrapPos).not.toBe(-1);
+
+	await page.waitForTimeout(100);
+
+	// The block cursor must render at the START of the visual line,
+	// not at the end of the previous visual line.
+	const cursorRect = await page.evaluate(() => {
+		return window.__visibleCursorHarness?.getCustomCursorRect() ?? null;
+	});
+
+	expect(cursorRect).not.toBeNull();
+	// cursor top should match the visual-line-start top (assoc=1 coords),
+	// not be on the line above
+	expect(cursorRect!.top).toBeCloseTo(result.expectedTop, 0);
+});
+

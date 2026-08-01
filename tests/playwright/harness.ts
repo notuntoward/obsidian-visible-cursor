@@ -1,7 +1,7 @@
-import { EditorSelection, EditorState } from '@codemirror/state';
+import { EditorSelection, EditorState, Transaction } from '@codemirror/state';
 import { EditorView, ViewPlugin } from '@codemirror/view';
 import type { Extension } from '@codemirror/state';
-import { CustomCursorViewPlugin } from '../../main';
+import VisibleCursorPlugin, { CustomCursorViewPlugin } from '../../main';
 import { DEFAULT_SETTINGS, type VisibleCursorPluginSettings } from '../../settings';
 import { ColorProvider } from '../../src/services/colorProvider';
 import type { VisibleCursorHarness } from './harnessTypes';
@@ -27,6 +27,9 @@ function createPluginStub() {
 
 	return {
 		settings,
+		lastKey: '',
+		lastKeyDownTime: 0,
+		lastUserEvent: '',
 		debugCursorDiagnostics: false,
 		flashActive: true,
 		isComposing: false,
@@ -45,11 +48,12 @@ function createView(doc: string, cursorPos: number): EditorView {
 	const cursorExtension = ViewPlugin.define(
 		(v: EditorView) => new CustomCursorViewPlugin(v, stub as never)
 	);
+	const navExtensions = VisibleCursorPlugin.prototype.createBlockCursorNavFilter.call(stub as never);
 
 	const state = EditorState.create({
 		doc,
 		selection: EditorSelection.cursor(cursorPos),
-		extensions: [EditorView.lineWrapping, cursorExtension]
+		extensions: [EditorView.lineWrapping, cursorExtension, ...navExtensions]
 	});
 
 	const editorView = new EditorView({
@@ -101,6 +105,15 @@ const harness: VisibleCursorHarness = {
 	getCursor() {
 		const sel = view.state.selection.main;
 		return { head: sel.head, assoc: sel.assoc };
+	},
+	getView() {
+		return view;
+	},
+	dispatchEmacsMoveToStart(targetPos: number) {
+		view.dispatch({
+			selection: EditorSelection.cursor(targetPos),
+			annotations: Transaction.userEvent.of('emacs.moveToBeginning')
+		});
 	},
 	async pressKey(key: string) {
 		view.focus();
