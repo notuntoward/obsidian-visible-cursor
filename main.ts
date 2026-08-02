@@ -12,6 +12,27 @@ import { FlashScheduler, type FlashState } from "./src/services/flashScheduler";
 import { FlashRenderer } from "./src/services/flashRenderer";
 
 /**
+ * Helper to check if a position is a soft-wrap boundary.
+ */
+export function isSoftWrap(view: EditorView, pos: number): boolean {
+  if (!view || !view.state || !view.state.doc) return false;
+  try {
+    const line = view.state.doc.lineAt(pos);
+    if (pos === line.to) return false;
+
+    const coordsBefore = view.coordsAtPos(pos, -1);
+    const coordsAfter = view.coordsAtPos(pos, 1);
+
+    if (!coordsBefore || !coordsAfter) return false;
+
+    const threshold = (view.defaultLineHeight || 20) * 0.3;
+    return Math.abs(coordsBefore.top - coordsAfter.top) > threshold;
+  } catch (e) {
+    return false;
+  }
+}
+
+/**
  * Helper to get precise cursor coordinates.
  * Uses browser DOM Selection range when active inside view.scrollDOM, which accurately
  * measures line/cell bounding rects inside CM6 widgets (such as Live Preview tables).
@@ -29,7 +50,15 @@ export function getPreciseCursorCoords(
   // When forceCoordAPI is true (e.g. blockWrapState override), skip the native
   // selection path because the browser DOM selection may not yet reflect a
   // corrective dispatch and would return stale end-of-previous-line coords.
-  if (!forceCoordAPI && typeof window !== "undefined") {
+  // Also skip native selection path at soft-wrap boundaries, as the native selection's
+  // bounding box at a wrap boundary does not respect CodeMirror's association and
+  // can result in incorrect (split) coordinates.
+  let skipNativeSelection = forceCoordAPI;
+  if (!skipNativeSelection && isSoftWrap(view, pos)) {
+    skipNativeSelection = true;
+  }
+
+  if (!skipNativeSelection && typeof window !== "undefined") {
     const sel = window.getSelection();
     if (sel && sel.rangeCount > 0) {
       const range = sel.getRangeAt(0);
@@ -1032,25 +1061,6 @@ export default class VisibleCursorPlugin extends Plugin {
     // ─────────────────────────────────────────────────────────────────────
 
     let pendingDownFromWrapPos: number | null = null;
-
-    const isSoftWrap = (view: EditorView, pos: number): boolean => {
-      const line = view.state.doc.lineAt(pos);
-
-      if (pos === line.to) return false;
-
-      const coordsBefore = view.coordsAtPos(pos, -1);
-      const coordsAfter = view.coordsAtPos(pos, 1);
-
-      if (!coordsBefore || !coordsAfter) return false;
-
-      // Use 30% of line height as the threshold instead of a hardcoded 1px value.
-      // A fixed 1px threshold fails at non-100% display scaling and with subpixel
-      // font rendering where same-line positions can legitimately differ by ~1px.
-      // 0.3 * defaultLineHeight is immune to both while remaining far below any
-      // real line-change delta (which is always ≥ 1 line height).
-      const threshold = view.defaultLineHeight * 0.3;
-      return Math.abs(coordsBefore.top - coordsAfter.top) > threshold;
-    };
 
     const findStartOfNextVisualLineFromWrap = (
       view: EditorView,
