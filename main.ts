@@ -53,10 +53,7 @@ export function getPreciseCursorCoords(
   // Also skip native selection path at soft-wrap boundaries, as the native selection's
   // bounding box at a wrap boundary does not respect CodeMirror's association and
   // can result in incorrect (split) coordinates.
-  let skipNativeSelection = forceCoordAPI;
-  if (!skipNativeSelection && isSoftWrap(view, pos)) {
-    skipNativeSelection = true;
-  }
+  const skipNativeSelection = forceCoordAPI || isSoftWrap(view, pos);
 
   if (!skipNativeSelection && typeof window !== "undefined") {
     const sel = window.getSelection();
