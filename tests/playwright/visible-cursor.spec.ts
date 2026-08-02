@@ -153,3 +153,62 @@ test('emacs.moveToBeginning on soft-wrapped line sets blockWrapState for visual 
 	expect(cursorRect!.top).toBeCloseTo(result.expectedTop, 0);
 });
 
+test('block cursor on soft-wrap boundary with assoc=1 renders on the continuation line and displays the correct character', async ({ page }) => {
+	const docText = 'Here is a long text that should definitely wrap across multiple lines of the editor to test the soft wrap boundary cursor alignment and character rendering';
+
+	// Step 1: Set doc and resize host
+	await page.evaluate((text) => {
+		const host = document.querySelector('.cm-editor-host') as HTMLElement;
+		if (host) host.style.width = '200px';
+
+		const harness = window.__visibleCursorHarness;
+		if (!harness) throw new Error('Harness unavailable');
+		harness.setDoc(text, 0);
+	}, docText);
+
+	// Step 2: Wait for layout reflow
+	await page.waitForTimeout(100);
+
+	// Step 3: Find soft-wrap boundary, set cursor with assoc=1, measure, and verify synchronously
+	const result = await page.evaluate(() => {
+		const harness = window.__visibleCursorHarness;
+		if (!harness) throw new Error('Harness unavailable');
+		const view = harness.getView() as import('@codemirror/view').EditorView;
+		const text = harness.getDoc();
+
+		let softWrapPos = -1;
+		for (let p = 1; p < text.length - 1; p++) {
+			const c1 = view.coordsAtPos(p, -1);
+			const c2 = view.coordsAtPos(p, 1);
+			if (c1 && c2 && Math.abs(c1.top - c2.top) > 5) {
+				softWrapPos = p;
+				break;
+			}
+		}
+
+		if (softWrapPos !== -1) {
+			const expectedTop = view.coordsAtPos(softWrapPos, 1)?.top ?? -1;
+			const expectedChar = text.charAt(softWrapPos);
+
+			// Move cursor with emacs.moveToBeginning userEvent to trigger the home-move logic
+			harness.dispatchEmacsMoveToStart(softWrapPos);
+
+			// Force synchronous measure and draw of custom cursor
+			(view as any).measure();
+
+			const rect = harness.getCustomCursorRect();
+			const textContent = harness.getCustomCursorText();
+			const cursor = harness.getCursor();
+
+			return { softWrapPos, expectedTop, expectedChar, rect, textContent, cursor };
+		}
+		return { softWrapPos: -1, expectedTop: -1, expectedChar: '', rect: null, textContent: null, cursor: null };
+	});
+
+	expect(result.softWrapPos).not.toBe(-1);
+	expect(result.rect).not.toBeNull();
+	// The block cursor must be rendered on the continuation line (the top coordinates should match expectedTop)
+	expect(result.rect!.top).toBeCloseTo(result.expectedTop, 0);
+	// The block cursor must contain the correct character
+	expect(result.textContent).toBe(result.expectedChar);
+});

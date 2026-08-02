@@ -88,6 +88,15 @@ const harness: VisibleCursorHarness = {
 		});
 		view.focus();
 	},
+	setCursorWithAssoc(pos: number, assoc: number) {
+		view.dispatch({
+			selection: EditorSelection.cursor(pos, assoc as 1 | -1),
+			scrollIntoView: true
+		});
+	},
+	setBlockWrapState(pos: number, assoc: number) {
+		pluginStub.blockWrapState = { logicalPos: pos, showPos: pos, assoc: assoc as 1 | -1 };
+	},
 	setSelection(anchor: number, head: number) {
 		view.dispatch({
 			selection: EditorSelection.single(anchor, head),
