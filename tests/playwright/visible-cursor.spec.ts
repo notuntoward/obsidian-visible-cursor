@@ -98,21 +98,19 @@ test('expanding selection follows the active head of the selection', async ({ pa
 	await page.evaluate(() => {
 		window.__visibleCursorHarness?.setSelection(0, 4);
 	});
-	await page.waitForTimeout(100);
-	const charTextLeftToRight = await page.evaluate(() => {
-		return window.__visibleCursorHarness?.getCustomCursorText() ?? null;
-	});
-	expect(charTextLeftToRight).toBe('5');
+	await expect.poll(
+		async () => page.evaluate(() => window.__visibleCursorHarness?.getCustomCursorText() ?? null),
+		{ timeout: 2000 },
+	).toBe('5');
 
 	// Right-to-left selection: anchor at 4, head at 0
 	await page.evaluate(() => {
 		window.__visibleCursorHarness?.setSelection(4, 0);
 	});
-	await page.waitForTimeout(100);
-	const charTextRightToLeft = await page.evaluate(() => {
-		return window.__visibleCursorHarness?.getCustomCursorText() ?? null;
-	});
-	expect(charTextRightToLeft).toBe('1');
+	await expect.poll(
+		async () => page.evaluate(() => window.__visibleCursorHarness?.getCustomCursorText() ?? null),
+		{ timeout: 2000 },
+	).toBe('1');
 });
 
 test('emacs.moveToBeginning on soft-wrapped line sets blockWrapState for visual line start', async ({ page }) => {
