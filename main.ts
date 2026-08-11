@@ -59,9 +59,9 @@ export function getPreciseCursorCoords(
   // position. coordsAtPos(pos, assoc) gives the correct per-position coordinates.
   // Only the main selection is checked because that is the only range this plugin
   // renders a cursor for (secondary ranges are ignored, see buildMeasureReq).
-  const selectionNonEmpty = !view.state.selection.main.empty;
+  const mainSelectionNonEmpty = !view.state.selection.main.empty;
   const skipNativeSelection =
-    forceCoordAPI || isSoftWrap(view, pos) || selectionNonEmpty;
+    forceCoordAPI || isSoftWrap(view, pos) || mainSelectionNonEmpty;
 
   if (!skipNativeSelection && typeof window !== "undefined") {
     const sel = window.getSelection();

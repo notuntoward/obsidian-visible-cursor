@@ -94,23 +94,21 @@ test('expanding selection follows the active head of the selection', async ({ pa
 		harness.setDoc('123456789', 0);
 	});
 
+	const expectCursorAfterSelection = async (anchor: number, head: number, expectedChar: string) => {
+		await page.evaluate(([a, h]) => {
+			window.__visibleCursorHarness?.setSelection(a, h);
+		}, [anchor, head]);
+		await expect.poll(
+			async () => page.evaluate(() => window.__visibleCursorHarness?.getCustomCursorText() ?? null),
+			{ timeout: 2000 },
+		).toBe(expectedChar);
+	};
+
 	// Left-to-right selection: anchor at 0, head at 4
-	await page.evaluate(() => {
-		window.__visibleCursorHarness?.setSelection(0, 4);
-	});
-	await expect.poll(
-		async () => page.evaluate(() => window.__visibleCursorHarness?.getCustomCursorText() ?? null),
-		{ timeout: 2000 },
-	).toBe('5');
+	await expectCursorAfterSelection(0, 4, '5');
 
 	// Right-to-left selection: anchor at 4, head at 0
-	await page.evaluate(() => {
-		window.__visibleCursorHarness?.setSelection(4, 0);
-	});
-	await expect.poll(
-		async () => page.evaluate(() => window.__visibleCursorHarness?.getCustomCursorText() ?? null),
-		{ timeout: 2000 },
-	).toBe('1');
+	await expectCursorAfterSelection(4, 0, '1');
 });
 
 test('emacs.moveToBeginning on soft-wrapped line sets blockWrapState for visual line start', async ({ page }) => {
