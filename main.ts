@@ -57,7 +57,7 @@ export function getPreciseCursorCoords(
   // the entire selected range, so getBoundingClientRect() returns the bounding box
   // of the whole selection (left edge = selection start) rather than the cursor
   // position. coordsAtPos(pos, assoc) gives the correct per-position coordinates.
-  const selectionNonEmpty = !view.state.selection.main.empty;
+  const selectionNonEmpty = view.state.selection.ranges.some(r => !r.empty);
   const skipNativeSelection =
     forceCoordAPI || isSoftWrap(view, pos) || selectionNonEmpty;
 

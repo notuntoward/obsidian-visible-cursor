@@ -92,17 +92,27 @@ test('expanding selection follows the active head of the selection', async ({ pa
 		const harness = window.__visibleCursorHarness;
 		if (!harness) throw new Error('Harness unavailable');
 		harness.setDoc('123456789', 0);
-		// Expand selection from position 0 ('1') to position 4 ('5')
-		harness.setSelection(0, 4);
+	});
+
+	// Left-to-right selection: anchor at 0, head at 4
+	await page.evaluate(() => {
+		window.__visibleCursorHarness?.setSelection(0, 4);
 	});
 	await page.waitForTimeout(100);
-
-	const charText = await page.evaluate(() => {
+	const charTextLeftToRight = await page.evaluate(() => {
 		return window.__visibleCursorHarness?.getCustomCursorText() ?? null;
 	});
+	expect(charTextLeftToRight).toBe('5');
 
-	// The block cursor must follow the active head (pos 4) and display character '5'
-	expect(charText).toBe('5');
+	// Right-to-left selection: anchor at 4, head at 0
+	await page.evaluate(() => {
+		window.__visibleCursorHarness?.setSelection(4, 0);
+	});
+	await page.waitForTimeout(100);
+	const charTextRightToLeft = await page.evaluate(() => {
+		return window.__visibleCursorHarness?.getCustomCursorText() ?? null;
+	});
+	expect(charTextRightToLeft).toBe('1');
 });
 
 test('emacs.moveToBeginning on soft-wrapped line sets blockWrapState for visual line start', async ({ page }) => {
