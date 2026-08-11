@@ -87,22 +87,28 @@ test('block cursor on indented bullet retains normal width', async ({ page }) =>
 	expect((result.rect as HarnessRect).width).toBeLessThan(result.defaultWidth * 2.0);
 });
 
-test('expanding selection preserves the character text at selection start', async ({ page }) => {
+test('expanding selection follows the active head of the selection', async ({ page }) => {
 	await page.evaluate(() => {
 		const harness = window.__visibleCursorHarness;
 		if (!harness) throw new Error('Harness unavailable');
 		harness.setDoc('123456789', 0);
-		// Expand selection from position 0 ('1') to position 4 ('5')
-		harness.setSelection(0, 4);
-	});
-	await page.waitForTimeout(100);
-
-	const charText = await page.evaluate(() => {
-		return window.__visibleCursorHarness?.getCustomCursorText() ?? null;
 	});
 
-	// The block cursor positioned at selection start (pos 0) must display character '1', not '5'
-	expect(charText).toBe('1');
+	const expectCursorAfterSelection = async (anchor: number, head: number, expectedChar: string) => {
+		await page.evaluate(([a, h]) => {
+			window.__visibleCursorHarness?.setSelection(a, h);
+		}, [anchor, head]);
+		await expect.poll(
+			async () => page.evaluate(() => window.__visibleCursorHarness?.getCustomCursorText() ?? null),
+			{ timeout: 2000 },
+		).toBe(expectedChar);
+	};
+
+	// Left-to-right selection: anchor at 0, head at 4
+	await expectCursorAfterSelection(0, 4, '5');
+
+	// Right-to-left selection: anchor at 4, head at 0
+	await expectCursorAfterSelection(4, 0, '1');
 });
 
 test('emacs.moveToBeginning on soft-wrapped line sets blockWrapState for visual line start', async ({ page }) => {
