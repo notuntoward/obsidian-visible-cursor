@@ -53,7 +53,13 @@ export function getPreciseCursorCoords(
   // Also skip native selection path at soft-wrap boundaries, as the native selection's
   // bounding box at a wrap boundary does not respect CodeMirror's association and
   // can result in incorrect (split) coordinates.
-  const skipNativeSelection = forceCoordAPI || isSoftWrap(view, pos);
+  // Also skip when the CM6 selection is non-empty: the native DOM selection spans
+  // the entire selected range, so getBoundingClientRect() returns the bounding box
+  // of the whole selection (left edge = selection start) rather than the cursor
+  // position. coordsAtPos(pos, assoc) gives the correct per-position coordinates.
+  const selectionNonEmpty = !view.state.selection.main.empty;
+  const skipNativeSelection =
+    forceCoordAPI || isSoftWrap(view, pos) || selectionNonEmpty;
 
   if (!skipNativeSelection && typeof window !== "undefined") {
     const sel = window.getSelection();

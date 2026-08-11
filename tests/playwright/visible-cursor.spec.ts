@@ -87,7 +87,7 @@ test('block cursor on indented bullet retains normal width', async ({ page }) =>
 	expect((result.rect as HarnessRect).width).toBeLessThan(result.defaultWidth * 2.0);
 });
 
-test('expanding selection preserves the character text at selection start', async ({ page }) => {
+test('expanding selection follows the active head of the selection', async ({ page }) => {
 	await page.evaluate(() => {
 		const harness = window.__visibleCursorHarness;
 		if (!harness) throw new Error('Harness unavailable');
@@ -101,8 +101,8 @@ test('expanding selection preserves the character text at selection start', asyn
 		return window.__visibleCursorHarness?.getCustomCursorText() ?? null;
 	});
 
-	// The block cursor positioned at selection start (pos 0) must display character '1', not '5'
-	expect(charText).toBe('1');
+	// The block cursor must follow the active head (pos 4) and display character '5'
+	expect(charText).toBe('5');
 });
 
 test('emacs.moveToBeginning on soft-wrapped line sets blockWrapState for visual line start', async ({ page }) => {
