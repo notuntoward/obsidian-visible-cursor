@@ -312,7 +312,7 @@ export class CustomCursorViewPlugin {
         if (view.composing) return null;
 
         const sel = view.state.selection.main;
-        const pos = sel.empty ? sel.head : sel.from;
+        const pos = sel.head;
         const style = plugin.settings.customCursorStyle;
 
         // For the block cursor, createBlockCursorNavFilter() tracks state via
