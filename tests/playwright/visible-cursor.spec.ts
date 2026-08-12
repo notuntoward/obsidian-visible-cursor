@@ -222,54 +222,67 @@ test('block cursor on soft-wrap boundary with assoc=1 renders on the continuatio
 test('emacs.moveToEnd / End on a soft-wrapped line lands on the wrap-boundary space (assoc=-1) on the upper visual line', async ({ page }) => {
 	const docText = 'Here is a long text that should definitely wrap across multiple lines of the editor to test the soft wrap boundary cursor alignment and character rendering';
 
+	// Step 1: load the document, then derive a narrow editor width from the
+	// actual character metrics so the text is guaranteed to soft-wrap
+	// regardless of the font or environment (no hard-coded pixel width).
 	await page.evaluate((text) => {
-		const host = document.querySelector('.cm-editor-host') as HTMLElement;
-		if (host) host.style.width = '200px';
-
 		const harness = window.__visibleCursorHarness;
 		if (!harness) throw new Error('Harness unavailable');
 		harness.setDoc(text, 0);
+		const charWidth = harness.getDefaultCharWidth() || 8;
+		const host = document.querySelector('.cm-editor-host') as HTMLElement;
+		if (host) host.style.width = `${Math.ceil(charWidth * 24)}px`;
 	}, docText);
 
-	await page.waitForTimeout(100);
+	// Step 2: wait until the layout has settled and a soft-wrap boundary is
+	// detectable. Using expect.poll (instead of a fixed timeout) makes the
+	// test robust to environment-dependent reflow timing.
+	await expect.poll(
+		async () => page.evaluate(() => window.__visibleCursorHarness?.findFirstSoftWrap() ?? null),
+		{ timeout: 2000 },
+	).not.toBeNull();
 
+	// Step 3: find the boundary, dispatch the move-to-end, force a
+	// synchronous measure, read the rendered cursor rect, then delete forward
+	// — all in one evaluate so the cursor position and measurement stay in
+	// sync.
 	const result = await page.evaluate(() => {
 		const harness = window.__visibleCursorHarness;
 		if (!harness) throw new Error('Harness unavailable');
-		const view = harness.getView() as import('@codemirror/view').EditorView;
-		const text = harness.getDoc();
 
-		// Find the first soft-wrap boundary and a position a few chars before it
-		// (so the cursor starts in the middle of the upper visual line, like a
-		// user pressing End from somewhere before the wrap point).
-		let softWrapPos = -1;
-		for (let p = 1; p < text.length - 1; p++) {
-			const c1 = view.coordsAtPos(p, -1);
-			const c2 = view.coordsAtPos(p, 1);
-			if (c1 && c2 && Math.abs(c1.top - c2.top) > 5) {
-				softWrapPos = p;
-				break;
-			}
+		const boundary = harness.findFirstSoftWrap();
+		if (!boundary) {
+			return {
+				softWrapPos: -1,
+				upperTop: -1,
+				lowerTop: -1,
+				rect: null,
+				expectedChar: '',
+				moveResult: { head: -1, assoc: 0 },
+				deleteResult: { deletedChar: '', headBefore: -1 },
+			};
 		}
 
-		if (softWrapPos === -1) {
-			return { softWrapPos, upperTop: -1, lowerTop: -1, rect: null, cursor: null, expectedChar: '', moveResult: { head: -1, assoc: 0 }, deleteResult: { deletedChar: '', headBefore: -1 } };
-		}
-
-		const upperTop = view.coordsAtPos(softWrapPos, -1)?.top ?? -1;
-		const lowerTop = view.coordsAtPos(softWrapPos, 1)?.top ?? -1;
-		const expectedChar = text.charAt(softWrapPos);
-
-		const fromPos = Math.max(0, softWrapPos - 3);
+		const expectedChar = harness.getDoc().charAt(boundary.pos);
+		// Start a few characters before the wrap point, like a user pressing
+		// End from the middle of the upper visual line.
+		const fromPos = Math.max(0, boundary.pos - 3);
 		const moveResult = harness.dispatchEmacsMoveToEndFrom(fromPos);
 
-		(view as any).measure();
+		harness.measure();
 
 		const rect = harness.getCustomCursorRect();
-		const cursor = harness.getCursor();
 		const deleteResult = harness.deleteForwardAtCursor();
 
-		return { softWrapPos, upperTop, lowerTop, rect, cursor, expectedChar, moveResult, deleteResult };
+		return {
+			softWrapPos: boundary.pos,
+			upperTop: boundary.upperTop,
+			lowerTop: boundary.lowerTop,
+			rect,
+			expectedChar,
+			moveResult,
+			deleteResult,
+		};
 	});
 
 	expect(result.softWrapPos).not.toBe(-1);

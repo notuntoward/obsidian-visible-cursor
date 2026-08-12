@@ -4,7 +4,7 @@ import type { Extension } from '@codemirror/state';
 import VisibleCursorPlugin, { CustomCursorViewPlugin } from '../../main';
 import { DEFAULT_SETTINGS, type VisibleCursorPluginSettings } from '../../settings';
 import { ColorProvider } from '../../src/services/colorProvider';
-import type { VisibleCursorHarness } from './harnessTypes';
+import type { VisibleCursorHarness, MoveToEndResult, DeleteForwardResult, SoftWrapBoundary } from './harnessTypes';
 
 document.body.classList.add('theme-dark');
 
@@ -124,7 +124,7 @@ const harness: VisibleCursorHarness = {
 			annotations: Transaction.userEvent.of('emacs.moveToBeginning')
 		});
 	},
-	dispatchEmacsMoveToEndFrom(fromPos: number) {
+	dispatchEmacsMoveToEndFrom(fromPos: number): MoveToEndResult {
 		// Faithfully replicates obsidian-emacs-text-editor's
 		// moveToLineBoundary(editor, view, forward=true): it seeds the call with
 		// the current selection head+assoc, computes the line-boundary range via
@@ -145,7 +145,7 @@ const harness: VisibleCursorHarness = {
 		});
 		return { head: newRange.head, assoc: newRange.assoc };
 	},
-	deleteForwardAtCursor() {
+	deleteForwardAtCursor(): DeleteForwardResult {
 		// Replicates CM6's deleteCharForward for a collapsed cursor that is not
 		// at a logical line end: deletes the single character at the cursor
 		// head. Returns the deleted character so tests can assert which character
@@ -159,6 +159,39 @@ const harness: VisibleCursorHarness = {
 			scrollIntoView: true
 		});
 		return { deletedChar, headBefore: head };
+	},
+	measure() {
+		// Forces a synchronous layout pass so the custom-cursor overlay is
+		// repositioned within the same evaluate() call. measure() is part of
+		// EditorView's internal scheduling and is absent from the public type,
+		// so the call is funnelled through this typed harness method rather
+		// than scattered as `any` casts across individual tests.
+		(view as EditorView & { measure: () => void }).measure();
+	},
+	findFirstSoftWrap(): SoftWrapBoundary | null {
+		const text = view.state.doc.toString();
+		if (!text) return null;
+		// Derive the wrap-detection threshold from the actual line height so it
+		// adapts to the font instead of relying on a hard-coded pixel value.
+		const threshold = view.defaultLineHeight * 0.5;
+		// Target the scan: the first soft wrap occurs near
+		// (visible width / character width) characters in. Bound the search to
+		// a small window past that point rather than walking the entire
+		// document, which keeps the loop cheap and deterministic.
+		const charWidth = view.defaultCharacterWidth || 1;
+		const visibleWidth = view.scrollDOM.clientWidth;
+		const expectedWrapCol = charWidth > 0 && visibleWidth > 0
+			? Math.ceil(visibleWidth / charWidth)
+			: text.length;
+		const maxScan = Math.min(text.length, expectedWrapCol * 2 + 16);
+		for (let p = 1; p < maxScan; p++) {
+			const c1 = view.coordsAtPos(p, -1);
+			const c2 = view.coordsAtPos(p, 1);
+			if (c1 && c2 && Math.abs(c1.top - c2.top) > threshold) {
+				return { pos: p, upperTop: c1.top, lowerTop: c2.top };
+			}
+		}
+		return null;
 	},
 	async pressKey(key: string) {
 		view.focus();
