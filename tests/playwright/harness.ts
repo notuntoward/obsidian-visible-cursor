@@ -124,6 +124,42 @@ const harness: VisibleCursorHarness = {
 			annotations: Transaction.userEvent.of('emacs.moveToBeginning')
 		});
 	},
+	dispatchEmacsMoveToEndFrom(fromPos: number) {
+		// Faithfully replicates obsidian-emacs-text-editor's
+		// moveToLineBoundary(editor, view, forward=true): it seeds the call with
+		// the current selection head+assoc, computes the line-boundary range via
+		// view.moveToLineBoundary(..., true), preserves the returned assoc, and
+		// tags the dispatch with the 'emacs.moveToEnd' userEvent (which
+		// visible-cursor's navCorrection treats identically to the End key).
+		view.dispatch({
+			selection: EditorSelection.cursor(fromPos),
+			scrollIntoView: true
+		});
+		const sel = view.state.selection.main;
+		const headCursor = EditorSelection.cursor(sel.head, sel.assoc);
+		const newRange = view.moveToLineBoundary(headCursor, true);
+		view.dispatch({
+			selection: EditorSelection.cursor(newRange.head, newRange.assoc),
+			scrollIntoView: true,
+			annotations: Transaction.userEvent.of('emacs.moveToEnd')
+		});
+		return { head: newRange.head, assoc: newRange.assoc };
+	},
+	deleteForwardAtCursor() {
+		// Replicates CM6's deleteCharForward for a collapsed cursor that is not
+		// at a logical line end: deletes the single character at the cursor
+		// head. Returns the deleted character so tests can assert which character
+		// the Delete key would remove.
+		const sel = view.state.selection.main;
+		const head = sel.head;
+		const deletedChar = head < view.state.doc.length ? view.state.doc.sliceString(head, head + 1) : '';
+		view.dispatch({
+			changes: { from: head, to: Math.min(head + 1, view.state.doc.length) },
+			selection: EditorSelection.cursor(head),
+			scrollIntoView: true
+		});
+		return { deletedChar, headBefore: head };
+	},
 	async pressKey(key: string) {
 		view.focus();
 		const event = new KeyboardEvent('keydown', { key, bubbles: true });

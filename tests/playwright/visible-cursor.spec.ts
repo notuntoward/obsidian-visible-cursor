@@ -218,3 +218,73 @@ test('block cursor on soft-wrap boundary with assoc=1 renders on the continuatio
 	// The block cursor must contain the correct character
 	expect(result.textContent).toBe(result.expectedChar);
 });
+
+test('emacs.moveToEnd / End on a soft-wrapped line lands on the wrap-boundary space (assoc=-1) on the upper visual line', async ({ page }) => {
+	const docText = 'Here is a long text that should definitely wrap across multiple lines of the editor to test the soft wrap boundary cursor alignment and character rendering';
+
+	await page.evaluate((text) => {
+		const host = document.querySelector('.cm-editor-host') as HTMLElement;
+		if (host) host.style.width = '200px';
+
+		const harness = window.__visibleCursorHarness;
+		if (!harness) throw new Error('Harness unavailable');
+		harness.setDoc(text, 0);
+	}, docText);
+
+	await page.waitForTimeout(100);
+
+	const result = await page.evaluate(() => {
+		const harness = window.__visibleCursorHarness;
+		if (!harness) throw new Error('Harness unavailable');
+		const view = harness.getView() as import('@codemirror/view').EditorView;
+		const text = harness.getDoc();
+
+		// Find the first soft-wrap boundary and a position a few chars before it
+		// (so the cursor starts in the middle of the upper visual line, like a
+		// user pressing End from somewhere before the wrap point).
+		let softWrapPos = -1;
+		for (let p = 1; p < text.length - 1; p++) {
+			const c1 = view.coordsAtPos(p, -1);
+			const c2 = view.coordsAtPos(p, 1);
+			if (c1 && c2 && Math.abs(c1.top - c2.top) > 5) {
+				softWrapPos = p;
+				break;
+			}
+		}
+
+		if (softWrapPos === -1) {
+			return { softWrapPos, upperTop: -1, lowerTop: -1, rect: null, cursor: null, expectedChar: '', moveResult: { head: -1, assoc: 0 }, deleteResult: { deletedChar: '', headBefore: -1 } };
+		}
+
+		const upperTop = view.coordsAtPos(softWrapPos, -1)?.top ?? -1;
+		const lowerTop = view.coordsAtPos(softWrapPos, 1)?.top ?? -1;
+		const expectedChar = text.charAt(softWrapPos);
+
+		const fromPos = Math.max(0, softWrapPos - 3);
+		const moveResult = harness.dispatchEmacsMoveToEndFrom(fromPos);
+
+		(view as any).measure();
+
+		const rect = harness.getCustomCursorRect();
+		const cursor = harness.getCursor();
+		const deleteResult = harness.deleteForwardAtCursor();
+
+		return { softWrapPos, upperTop, lowerTop, rect, cursor, expectedChar, moveResult, deleteResult };
+	});
+
+	expect(result.softWrapPos).not.toBe(-1);
+	// CM6's moveToLineBoundary(forward) returns assoc=-1 at the wrap boundary
+	expect(result.moveResult.assoc).toBe(-1);
+	expect(result.rect).not.toBeNull();
+	// The block cursor must render on the UPPER visual line (its top matches the
+	// assoc=-1 coordinates), NOT on the continuation line. Rendering on the lower
+	// line would mean DELETE removes the first char of the next visual line instead
+	// of the wrap-boundary space.
+	expect(result.rect!.top).toBeCloseTo(result.upperTop, 0);
+	expect(result.rect!.top).not.toBeCloseTo(result.lowerTop, 0);
+	// Pressing Delete after End must remove the wrap-boundary space (the char at
+	// softWrapPos), NOT the first character of the next visual line. This is the
+	// emacs visual-line-mode behaviour the user expects.
+	expect(result.deleteResult.headBefore).toBe(result.softWrapPos);
+	expect(result.deleteResult.deletedChar).toBe(result.expectedChar);
+});
