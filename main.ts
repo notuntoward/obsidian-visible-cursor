@@ -526,8 +526,20 @@ export class CustomCursorViewPlugin {
           // If Steady Links is working correctly, the cursor never lands on
           // hidden syntax and this fallback never fires.  It exists as a safety
           // net.  Do NOT remove it — see AGENTS.md.
+          //
+          // The threshold must be low enough that genuine narrow characters
+          // (i, ., ,, ;, :) in proportional fonts — which have real width of
+          // several px — do NOT trigger the fallback and get blotted out by
+          // the char = ' ' replacement.  Collapsed syntax returns ~1px, so a
+          // small absolute floor (2px or 15% of defaultCharacterWidth) cleanly
+          // separates the two cases.
           const minimumBlockWidth = (view.defaultCharacterWidth || 10) * 0.5;
-          if (charWidth < minimumBlockWidth) {
+          const collapsedSyntaxWidth =
+            Math.max(2, (view.defaultCharacterWidth || 10) * 0.15);
+          if (
+            positionStartsInCollapsedSyntax ||
+            charWidth <= collapsedSyntaxWidth
+          ) {
             // The measured width was too small to be a real visible character.
             // This typically happens when the cursor lands on hidden wikilink
             // syntax (e.g. `[` or `]`) that Steady Links has collapsed to near

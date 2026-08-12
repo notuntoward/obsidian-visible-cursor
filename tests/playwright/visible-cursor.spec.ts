@@ -301,3 +301,43 @@ test('emacs.moveToEnd / End on a soft-wrapped line lands on the wrap-boundary sp
 	expect(result.deleteResult.headBefore).toBe(result.softWrapPos);
 	expect(result.deleteResult.deletedChar).toBe(result.expectedChar);
 });
+
+test('block cursor on narrow characters (i, ., ,, ;, :) renders the character instead of blotting it out', async ({ page }) => {
+	const docText = 'inside, ideas; last: period.';
+
+	await page.evaluate((text) => {
+		const harness = window.__visibleCursorHarness;
+		if (!harness) throw new Error('Harness unavailable');
+		harness.setDoc(text, 0);
+		// Use a proportional font so narrow characters (i, ., ,, ;, :) actually
+		// measure narrower than defaultCharacterWidth, reproducing the bug
+		// where the min-width fallback blots them out.
+		const content = document.querySelector('.cm-content') as HTMLElement;
+		if (content) content.style.fontFamily = 'sans-serif';
+	}, docText);
+
+	// Find positions of each narrow character in the document
+	const positions = await page.evaluate((text) => {
+		const targets = ['i', '.', ',', ';', ':'];
+		const found: Array<{ char: string; pos: number }> = [];
+		for (let p = 0; p < text.length; p++) {
+			if (targets.includes(text[p])) {
+				found.push({ char: text[p], pos: p });
+			}
+		}
+		return found;
+	}, docText);
+
+	expect(positions.length).toBeGreaterThan(0);
+
+	for (const { char, pos } of positions) {
+		await page.evaluate(([p]) => {
+			window.__visibleCursorHarness?.setCursor(p);
+		}, [pos]);
+
+		await expect.poll(
+			async () => page.evaluate(() => window.__visibleCursorHarness?.getCustomCursorText() ?? null),
+			{ timeout: 2000 },
+		).toBe(char);
+	}
+});
