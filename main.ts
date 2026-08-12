@@ -208,13 +208,23 @@ export class CustomCursorViewPlugin {
             typeof getComputedStyle === "function"
               ? getComputedStyle(element)
               : null;
+          // Check for opacity: 0 (used by Obsidian to hide markdown formatting)
+          const opacity = style?.opacity;
+          const isTransparent = opacity === "0";
+          // Check for color: transparent or rgba with alpha = 0
+          const color = style?.color;
+          const isColorTransparent =
+            color === "transparent" ||
+            (color && color.startsWith("rgba") && color.endsWith(", 0)"));
           if (
             ariaHidden === "true" ||
             style?.display === "none" ||
             style?.visibility === "hidden" ||
             style?.fontSize === "0px" ||
             style?.width === "0px" ||
-            style?.maxWidth === "0px"
+            style?.maxWidth === "0px" ||
+            isTransparent ||
+            isColorTransparent
           ) {
             return true;
           }
@@ -287,7 +297,7 @@ export class CustomCursorViewPlugin {
         if (!currentCoords) continue;
 
         const width = probeCoords.left - currentCoords.left;
-        if (width >= (view.defaultCharacterWidth || 10) * 0.5) {
+        if (width >= Math.max(2, (view.defaultCharacterWidth || 10) * 0.15)) {
           return { pos: probe - 1, assoc: -1 };
         }
       }
@@ -700,7 +710,24 @@ export class CustomCursorViewPlugin {
       ) => {
         if (!measure) {
           cursorLayer.style.display = "none";
-          this.view.contentDOM.classList.remove("visible-cursor-hide-caret");
+          // Keep the native caret hidden when the editor is focused and the
+          // custom cursor mode is active, even if we couldn't measure
+          // coordinates (e.g. cursor at a collapsed link-syntax boundary where
+          // coordsAtPos returns null).  Only reveal the native caret when the
+          // editor loses focus, the mode is off, flash is inactive, or IME
+          // composition is active — the same conditions read() checks before
+          // returning null for those reasons.
+          const mode = plugin.settings.customCursorMode;
+          const shouldHideNative =
+            mode !== "off" &&
+            !(mode === "flash" && !plugin.flashActive) &&
+            this.view.hasFocus &&
+            !this.view.composing;
+          if (shouldHideNative) {
+            this.view.contentDOM.classList.add("visible-cursor-hide-caret");
+          } else {
+            this.view.contentDOM.classList.remove("visible-cursor-hide-caret");
+          }
           return;
         }
         cursorLayer.style.display = "";
@@ -1179,7 +1206,7 @@ export default class VisibleCursorPlugin extends Plugin {
           break;
 
         const width = rightEdge.left - leftEdge.left;
-        if (width >= (view.defaultCharacterWidth || 10) * 0.5) {
+        if (width >= Math.max(2, (view.defaultCharacterWidth || 10) * 0.15)) {
           return { pos: probe - 1, assoc: -1 };
         }
       }

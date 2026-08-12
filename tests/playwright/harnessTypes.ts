@@ -42,6 +42,8 @@ export type VisibleCursorHarness = {
 	getLineText: (lineNumber: number) => string | null;
 	getSelectionTextAround: (pos: number, span?: number) => string;
 	getDefaultCharWidth: () => number;
+	hasNativeCursorHidden: () => boolean;
+	hideCharAtPos: (pos: number) => void;
 	destroy: () => void;
 };
 

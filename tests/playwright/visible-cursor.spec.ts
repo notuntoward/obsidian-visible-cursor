@@ -341,3 +341,49 @@ test('block cursor on narrow characters (i, ., ,, ;, :) renders the character in
 		).toBe(char);
 	}
 });
+
+test('native cursor stays hidden even when custom cursor cannot measure coordinates', async ({ page }) => {
+	await page.evaluate(() => {
+		window.__visibleCursorHarness?.setDoc('hello world', 0);
+		window.__visibleCursorHarness?.setCursor(5);
+	});
+	await page.waitForTimeout(100);
+
+	// When the editor has focus and the custom cursor mode is active, the
+	// native caret must stay hidden even if the custom cursor layer can't
+	// render (e.g. cursor at a collapsed link-syntax boundary where
+	// coordsAtPos returns null).  This prevents the native blinking caret
+	// from leaking through at link edges.
+	const isHidden = await page.evaluate(() => {
+		const harness = window.__visibleCursorHarness;
+		if (!harness) throw new Error('Harness unavailable');
+		return harness.hasNativeCursorHidden();
+	});
+	expect(isHidden).toBe(true);
+});
+
+test('block cursor renders a space for characters hidden via opacity:0 (markdown link brackets)', async ({ page }) => {
+	await page.evaluate(() => {
+		window.__visibleCursorHarness?.setDoc('[link text](url)', 0);
+		window.__visibleCursorHarness?.setCursor(0);
+	});
+
+	// Wait for the cursor to render normally first
+	await expect.poll(
+		async () => page.evaluate(() => window.__visibleCursorHarness?.getCustomCursorText() ?? null),
+		{ timeout: 2000 },
+	).toBe('[');
+
+	// Simulate Obsidian Live Preview hiding the bracket by applying an
+	// opacity:0 decoration via CM6's Decoration API (the same mechanism
+	// Obsidian uses internally).
+	await page.evaluate(() => {
+		window.__visibleCursorHarness?.hideCharAtPos(0);
+	});
+
+	// The block cursor should now render a space, not the bracket character '['
+	await expect.poll(
+		async () => page.evaluate(() => window.__visibleCursorHarness?.getCustomCursorText() ?? null),
+		{ timeout: 2000 },
+	).toBe(' ');
+});

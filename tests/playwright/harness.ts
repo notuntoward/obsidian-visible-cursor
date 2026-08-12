@@ -1,6 +1,7 @@
-import { EditorSelection, EditorState, Transaction } from '@codemirror/state';
-import { EditorView, ViewPlugin } from '@codemirror/view';
+import { EditorSelection, EditorState, Transaction, StateEffect, StateField } from '@codemirror/state';
+import { EditorView, ViewPlugin, Decoration } from '@codemirror/view';
 import type { Extension } from '@codemirror/state';
+import type { DecorationSet } from '@codemirror/view';
 import VisibleCursorPlugin, { CustomCursorViewPlugin } from '../../main';
 import { DEFAULT_SETTINGS, type VisibleCursorPluginSettings } from '../../settings';
 import { ColorProvider } from '../../src/services/colorProvider';
@@ -38,6 +39,26 @@ function createPluginStub() {
 	};
 }
 
+// State effect + field to simulate Obsidian Live Preview hiding characters
+// (e.g. markdown link brackets) via opacity:0 decorations.
+const hideCharEffect = StateEffect.define<{ from: number; to: number }>();
+const hideCharField = StateField.define<DecorationSet>({
+	create: () => Decoration.none,
+	update: (deco, tr) => {
+		for (const e of tr.effects) {
+			if (e.is(hideCharEffect)) {
+				return Decoration.set([
+					Decoration.mark({
+						attributes: { style: 'opacity: 0' }
+					}).range(e.value.from, e.value.to)
+				]);
+			}
+		}
+		return deco;
+	},
+	provide: f => EditorView.decorations.from(f)
+});
+
 let pluginStub = createPluginStub();
 let view = createView('Before\n[[test-notes/Note-09.md#Note Nine |Note Nine]]\nAfter', 0);
 
@@ -53,7 +74,7 @@ function createView(doc: string, cursorPos: number): EditorView {
 	const state = EditorState.create({
 		doc,
 		selection: EditorSelection.cursor(cursorPos),
-		extensions: [EditorView.lineWrapping, cursorExtension, ...navExtensions]
+		extensions: [EditorView.lineWrapping, cursorExtension, ...navExtensions, hideCharField]
 	});
 
 	const editorView = new EditorView({
@@ -216,6 +237,16 @@ const harness: VisibleCursorHarness = {
 	},
 	getDefaultCharWidth() {
 		return view.defaultCharacterWidth;
+	},
+	hasNativeCursorHidden() {
+		return view.contentDOM.classList.contains('visible-cursor-hide-caret');
+	},
+	hideCharAtPos(pos: number) {
+		view.dispatch({
+			effects: hideCharEffect.of({ from: pos, to: pos + 1 }),
+			selection: EditorSelection.cursor(pos),
+			scrollIntoView: true,
+		});
 	},
 	destroy() {
 		view.destroy();
