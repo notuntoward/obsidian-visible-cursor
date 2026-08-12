@@ -1,10 +1,11 @@
-import { EditorSelection, EditorState, Transaction } from '@codemirror/state';
-import { EditorView, ViewPlugin } from '@codemirror/view';
+import { EditorSelection, EditorState, Transaction, StateEffect, StateField } from '@codemirror/state';
+import { EditorView, ViewPlugin, Decoration } from '@codemirror/view';
 import type { Extension } from '@codemirror/state';
+import type { DecorationSet } from '@codemirror/view';
 import VisibleCursorPlugin, { CustomCursorViewPlugin } from '../../main';
 import { DEFAULT_SETTINGS, type VisibleCursorPluginSettings } from '../../settings';
 import { ColorProvider } from '../../src/services/colorProvider';
-import type { VisibleCursorHarness } from './harnessTypes';
+import type { VisibleCursorHarness, MoveToEndResult, DeleteForwardResult, SoftWrapBoundary } from './harnessTypes';
 
 document.body.classList.add('theme-dark');
 
@@ -38,6 +39,26 @@ function createPluginStub() {
 	};
 }
 
+// State effect + field to simulate Obsidian Live Preview hiding characters
+// (e.g. markdown link brackets) via opacity:0 decorations.
+const hideCharEffect = StateEffect.define<{ from: number; to: number }>();
+const hideCharField = StateField.define<DecorationSet>({
+	create: () => Decoration.none,
+	update: (deco, tr) => {
+		for (const e of tr.effects) {
+			if (e.is(hideCharEffect)) {
+				return Decoration.set([
+					Decoration.mark({
+						attributes: { style: 'opacity: 0' }
+					}).range(e.value.from, e.value.to)
+				]);
+			}
+		}
+		return deco;
+	},
+	provide: f => EditorView.decorations.from(f)
+});
+
 let pluginStub = createPluginStub();
 let view = createView('Before\n[[test-notes/Note-09.md#Note Nine |Note Nine]]\nAfter', 0);
 
@@ -53,7 +74,7 @@ function createView(doc: string, cursorPos: number): EditorView {
 	const state = EditorState.create({
 		doc,
 		selection: EditorSelection.cursor(cursorPos),
-		extensions: [EditorView.lineWrapping, cursorExtension, ...navExtensions]
+		extensions: [EditorView.lineWrapping, cursorExtension, ...navExtensions, hideCharField]
 	});
 
 	const editorView = new EditorView({
@@ -124,6 +145,75 @@ const harness: VisibleCursorHarness = {
 			annotations: Transaction.userEvent.of('emacs.moveToBeginning')
 		});
 	},
+	dispatchEmacsMoveToEndFrom(fromPos: number): MoveToEndResult {
+		// Faithfully replicates obsidian-emacs-text-editor's
+		// moveToLineBoundary(editor, view, forward=true): it seeds the call with
+		// the current selection head+assoc, computes the line-boundary range via
+		// view.moveToLineBoundary(..., true), preserves the returned assoc, and
+		// tags the dispatch with the 'emacs.moveToEnd' userEvent (which
+		// visible-cursor's navCorrection treats identically to the End key).
+		view.dispatch({
+			selection: EditorSelection.cursor(fromPos),
+			scrollIntoView: true
+		});
+		const sel = view.state.selection.main;
+		const headCursor = EditorSelection.cursor(sel.head, sel.assoc);
+		const newRange = view.moveToLineBoundary(headCursor, true);
+		view.dispatch({
+			selection: EditorSelection.cursor(newRange.head, newRange.assoc),
+			scrollIntoView: true,
+			annotations: Transaction.userEvent.of('emacs.moveToEnd')
+		});
+		return { head: newRange.head, assoc: newRange.assoc };
+	},
+	deleteForwardAtCursor(): DeleteForwardResult {
+		// Replicates CM6's deleteCharForward for a collapsed cursor that is not
+		// at a logical line end: deletes the single character at the cursor
+		// head. Returns the deleted character so tests can assert which character
+		// the Delete key would remove.
+		const sel = view.state.selection.main;
+		const head = sel.head;
+		const deletedChar = head < view.state.doc.length ? view.state.doc.sliceString(head, head + 1) : '';
+		view.dispatch({
+			changes: { from: head, to: Math.min(head + 1, view.state.doc.length) },
+			selection: EditorSelection.cursor(head),
+			scrollIntoView: true
+		});
+		return { deletedChar, headBefore: head };
+	},
+	measure() {
+		// Forces a synchronous layout pass so the custom-cursor overlay is
+		// repositioned within the same evaluate() call. measure() is part of
+		// EditorView's internal scheduling and is absent from the public type,
+		// so the call is funnelled through this typed harness method rather
+		// than scattered as `any` casts across individual tests.
+		(view as EditorView & { measure: () => void }).measure();
+	},
+	findFirstSoftWrap(): SoftWrapBoundary | null {
+		const text = view.state.doc.toString();
+		if (!text) return null;
+		// Derive the wrap-detection threshold from the actual line height so it
+		// adapts to the font instead of relying on a hard-coded pixel value.
+		const threshold = view.defaultLineHeight * 0.5;
+		// Target the scan: the first soft wrap occurs near
+		// (visible width / character width) characters in. Bound the search to
+		// a small window past that point rather than walking the entire
+		// document, which keeps the loop cheap and deterministic.
+		const charWidth = view.defaultCharacterWidth || 1;
+		const visibleWidth = view.scrollDOM.clientWidth;
+		const expectedWrapCol = charWidth > 0 && visibleWidth > 0
+			? Math.ceil(visibleWidth / charWidth)
+			: text.length;
+		const maxScan = Math.min(text.length, expectedWrapCol * 2 + 16);
+		for (let p = 1; p < maxScan; p++) {
+			const c1 = view.coordsAtPos(p, -1);
+			const c2 = view.coordsAtPos(p, 1);
+			if (c1 && c2 && Math.abs(c1.top - c2.top) > threshold) {
+				return { pos: p, upperTop: c1.top, lowerTop: c2.top };
+			}
+		}
+		return null;
+	},
 	async pressKey(key: string) {
 		view.focus();
 		const event = new KeyboardEvent('keydown', { key, bubbles: true });
@@ -147,6 +237,16 @@ const harness: VisibleCursorHarness = {
 	},
 	getDefaultCharWidth() {
 		return view.defaultCharacterWidth;
+	},
+	hasNativeCursorHidden() {
+		return view.contentDOM.classList.contains('visible-cursor-hide-caret');
+	},
+	hideCharAtPos(pos: number) {
+		view.dispatch({
+			effects: hideCharEffect.of({ from: pos, to: pos + 1 }),
+			selection: EditorSelection.cursor(pos),
+			scrollIntoView: true,
+		});
 	},
 	destroy() {
 		view.destroy();
