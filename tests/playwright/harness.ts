@@ -1,5 +1,5 @@
 import { EditorSelection, EditorState, Transaction } from '@codemirror/state';
-import { EditorView, ViewPlugin } from '@codemirror/view';
+import { EditorView, ViewPlugin, drawSelection } from '@codemirror/view';
 import type { Extension } from '@codemirror/state';
 import VisibleCursorPlugin, { CustomCursorViewPlugin } from '../../main';
 import { DEFAULT_SETTINGS, type VisibleCursorPluginSettings } from '../../settings';
@@ -49,11 +49,12 @@ function createView(doc: string, cursorPos: number): EditorView {
 		(v: EditorView) => new CustomCursorViewPlugin(v, stub as never)
 	);
 	const navExtensions = VisibleCursorPlugin.prototype.createBlockCursorNavFilter.call(stub as never);
+	const suppressionTheme = VisibleCursorPlugin.prototype.createCursorSuppressionTheme.call(stub as never);
 
 	const state = EditorState.create({
 		doc,
 		selection: EditorSelection.cursor(cursorPos),
-		extensions: [EditorView.lineWrapping, cursorExtension, ...navExtensions]
+		extensions: [EditorView.lineWrapping, drawSelection(), cursorExtension, suppressionTheme, ...navExtensions]
 	});
 
 	const editorView = new EditorView({

@@ -42,8 +42,26 @@
 }
 
 /* Local cursor suppression */
-.visible-cursor-hide-caret .cm-content {
+.visible-cursor-hide-caret,
+.visible-cursor-hide-caret.cm-content,
+.cm-content.visible-cursor-hide-caret,
+.visible-cursor-hide-default .cm-content {
   caret-color: transparent !important;
+}
+
+/* Suppress default CodeMirror cursor and dropCursor whenever custom cursor is active */
+.visible-cursor-hide-default .cm-cursorLayer,
+.visible-cursor-hide-default .cm-cursor,
+.visible-cursor-hide-default .cm-dropCursor,
+.cm-editor.visible-cursor-hide-default .cm-cursorLayer,
+.cm-editor.visible-cursor-hide-default .cm-cursor,
+.cm-editor:has(.visible-cursor-hide-caret) .cm-cursorLayer,
+.cm-editor:has(.visible-cursor-hide-caret) .cm-cursor {
+  display: none !important;
+  opacity: 0 !important;
+  visibility: hidden !important;
+  width: 0 !important;
+  border: none !important;
 }
 
 /* Hierarchical indentation and grayed out states for settings tab */

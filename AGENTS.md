@@ -24,6 +24,38 @@ When this triggers:
    (falling back to `' '` only if no visible cell is found) so the block cursor
    renders the first visible character cleanly without blotting it out with an
    empty block or rendering a garbled hidden-syntax glyph
+3. It snaps `coordsLeft = cellLeft.left`, `coordsTop = cellLeft.top`, and
+   `coordsBottom = cellLeft.bottom` to the visible cell's coordinates so the
+   block cursor overlay begins at the visible character, not at the collapsed
+   1px syntax anchor.
+
+## Critical: Default CodeMirror cursor suppression (`.cm-cursor` peeking out)
+
+CodeMirror 6 renders its default blinking cursor (`.cm-cursor`) inside
+`.cm-cursorLayer` independently of native CSS `caret-color`. When Steady Links
+collapses wikilink syntax, it places a 1px inline anchor widget immediately
+before the visible alias. When the cursor lands on collapsed syntax, CodeMirror
+positions `.cm-cursor` at that 1px anchor—just to the left of the visible alias.
+
+If `.cm-cursorLayer` is not suppressed, the default blinking cursor peeks out on
+the left edge of the custom block cursor.
+
+### Mandatory Cursor Suppression Invariants
+
+1. **Extension BaseTheme (`createCursorSuppressionTheme`)**:
+   Registered via `EditorView.baseTheme` in `registerEditorExtension`. Hides
+   `&.visible-cursor-hide-default .cm-cursorLayer, .cm-cursor, .cm-dropCursor`
+   (`display: none !important; opacity: 0 !important; visibility: hidden !important;`).
+   Using `baseTheme` ensures community themes and CSS snippets cannot override it.
+2. **Global CSS (`styles.css`)**:
+   Applies `.visible-cursor-hide-default .cm-cursorLayer` and
+   `.cm-editor:has(.visible-cursor-hide-caret) .cm-cursorLayer` rules as a
+   zero-delay defense before CM6 extensions mount.
+3. **DOM Class Lifecycle in `CustomCursorViewPlugin.write()`**:
+   When `measure` is active, adds `visible-cursor-hide-default` to `view.dom`
+   and `visible-cursor-hide-caret` to `view.contentDOM`. When `measure` is
+   null, on blur, destroy, or plugin unload, removes both classes so the
+   native editor cursor is cleanly restored.
 
 ### The real fix (in Steady Links)
 
@@ -47,6 +79,12 @@ visible alias character inside the block cursor overlay.
   garbled rendering or blotting out the first visible character.
 - Do NOT add code that detects whether Steady Links is installed.  The
   plugin must work identically with and without Steady Links.
+- Do NOT remove `createCursorSuppressionTheme()`, `.visible-cursor-hide-default`,
+  or the `.cm-cursorLayer` rules in `styles.css`. Relying only on `caret-color:
+  transparent` does not suppress CodeMirror's `.cm-cursor`.
+- Do NOT skip snapping `coordsLeft = cellLeft.left` when `visibleCell` is
+  found; using `rawCoords.left` shifts the block cursor onto the collapsed
+  anchor widget and creates a 1px boundary gap.
 
 ### How to verify
 

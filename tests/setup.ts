@@ -22,16 +22,23 @@ if (typeof global !== 'undefined' && !global.document) {
 			removeChild: () => {}
 		},
 		createElement: (tag: string) => {
+			const classes = new Set<string>();
 			const el: any = {
 				tagName: tag.toUpperCase(),
 				textContent: '',
 				style: {
-					cssText: ''
+					cssText: '',
+					setProperty: () => {}
 				},
 				setAttribute: () => {},
 				getAttribute: () => null,
 				remove: () => {},
 				className: '',
+				classList: {
+					contains: (cls: string) => classes.has(cls),
+					add: (cls: string) => { classes.add(cls); el.className = Array.from(classes).join(' '); },
+					remove: (cls: string) => { classes.delete(cls); el.className = Array.from(classes).join(' '); }
+				},
 				close: () => {},
 				open: () => {},
 				write: () => {},

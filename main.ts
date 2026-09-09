@@ -1,6 +1,6 @@
 import { Plugin, MarkdownView, WorkspaceLeaf } from "obsidian";
 import { EditorView, ViewPlugin, ViewUpdate, keymap } from "@codemirror/view";
-import { EditorSelection, Transaction, Prec } from "@codemirror/state";
+import { EditorSelection, Transaction, Prec, Extension } from "@codemirror/state";
 import {
   VisibleCursorPluginSettings,
   DEFAULT_SETTINGS,
@@ -173,8 +173,13 @@ export class CustomCursorViewPlugin {
 
   destroy() {
     this.cursorLayer.remove();
-    if (this.view && this.view.contentDOM) {
-      this.view.contentDOM.classList.remove("visible-cursor-hide-caret");
+    if (this.view) {
+      if (this.view.contentDOM) {
+        this.view.contentDOM.classList.remove("visible-cursor-hide-caret");
+      }
+      if (this.view.dom) {
+        this.view.dom.classList.remove("visible-cursor-hide-default");
+      }
     }
     this.view = null as any;
     this.plugin = null as any;
@@ -567,11 +572,17 @@ export class CustomCursorViewPlugin {
             // block cursor matches the visible alias character.
             visibleCell = findNextRenderableCell(view, visualPos);
             let probeWidth = 0;
+            let cellLeft: { left: number; right: number; top: number; bottom: number } | null = null;
             if (visibleCell) {
-              const cellLeft = view.coordsAtPos(visibleCell.pos, -1);
+              cellLeft = view.coordsAtPos(visibleCell.pos, -1);
               const cellRight = view.coordsAtPos(visibleCell.pos + 1, -1);
               if (cellLeft && cellRight) {
                 probeWidth = cellRight.left - cellLeft.left;
+              }
+              if (cellLeft) {
+                coordsLeft = cellLeft.left;
+                coordsTop = cellLeft.top;
+                coordsBottom = cellLeft.bottom;
               }
             }
             if (probeWidth >= minimumBlockWidth && visibleCell) {
@@ -731,13 +742,15 @@ export class CustomCursorViewPlugin {
       ) => {
         if (!measure) {
           cursorLayer.style.display = "none";
-          this.view.contentDOM.classList.remove("visible-cursor-hide-caret");
+          this.view.contentDOM?.classList.remove("visible-cursor-hide-caret");
+          this.view.dom?.classList.remove("visible-cursor-hide-default");
           return;
         }
         cursorLayer.style.display = "";
 
-        // Hide native browser caret
-        this.view.contentDOM.classList.add("visible-cursor-hide-caret");
+        // Hide native browser caret and default CodeMirror cursor
+        this.view.contentDOM?.classList.add("visible-cursor-hide-caret");
+        this.view.dom?.classList.add("visible-cursor-hide-default");
 
         if (!this.cursorEl) {
           this.cursorEl = document.createElement("div");
@@ -852,10 +865,12 @@ export default class VisibleCursorPlugin extends Plugin {
 
     // Register editor extensions:
     // 1. CustomCursorViewPlugin — codemirror-emacs BlockCursorPlugin pattern
-    // 2. domEventHandlers — scroll-triggered flashes
-    // 3. blockCursorNavFilter — GNU Emacs soft-wrap boundary navigation for block cursor
+    // 2. cursorSuppressionTheme — suppresses default blinking cursor while custom cursor is active
+    // 3. domEventHandlers — scroll-triggered flashes
+    // 4. blockCursorNavFilter — GNU Emacs soft-wrap boundary navigation for block cursor
     this.registerEditorExtension([
       ViewPlugin.define((view) => new CustomCursorViewPlugin(view, pluginRef)),
+      this.createCursorSuppressionTheme(),
       this.createDOMEventHandlers(),
       ...this.createBlockCursorNavFilter(),
     ]);
@@ -917,6 +932,21 @@ export default class VisibleCursorPlugin extends Plugin {
     });
     window.addEventListener("click", this.boundClickEndFence, {
       capture: true,
+    });
+  }
+
+  createCursorSuppressionTheme(): Extension {
+    return EditorView.baseTheme({
+      "&.visible-cursor-hide-default .cm-cursorLayer, &.visible-cursor-hide-default .cm-cursor, &.visible-cursor-hide-default .cm-dropCursor": {
+        display: "none !important",
+        opacity: "0 !important",
+        visibility: "hidden !important",
+        width: "0 !important",
+        border: "none !important",
+      },
+      "&.visible-cursor-hide-default .cm-content, & .cm-content.visible-cursor-hide-caret": {
+        caretColor: "transparent !important",
+      },
     });
   }
 
@@ -2265,12 +2295,17 @@ export default class VisibleCursorPlugin extends Plugin {
       capture: true,
     });
 
-    // Remove hide-caret class from all active editors when unloading the plugin
+    // Remove hide-caret and hide-default classes from all active editors when unloading the plugin
     this.app.workspace.iterateAllLeaves((leaf) => {
       if (leaf.view instanceof MarkdownView) {
         const editorView = this.getCMView(leaf.view);
-        if (editorView && editorView.contentDOM) {
-          editorView.contentDOM.classList.remove("visible-cursor-hide-caret");
+        if (editorView) {
+          if (editorView.contentDOM) {
+            editorView.contentDOM.classList.remove("visible-cursor-hide-caret");
+          }
+          if (editorView.dom) {
+            editorView.dom.classList.remove("visible-cursor-hide-default");
+          }
         }
       }
     });

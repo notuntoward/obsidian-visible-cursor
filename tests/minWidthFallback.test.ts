@@ -229,4 +229,65 @@ describe('min-width fallback for collapsed link syntax', () => {
 		expect(result.char).toBe(' ');
 		expect(result.width).toBe(10);
 	});
+
+	it('manages visible-cursor-hide-caret and visible-cursor-hide-default classes on view.dom and view.contentDOM', () => {
+		const docText = 'Hello world';
+		const plugin = new VisibleCursorPlugin({} as never, {} as never);
+		plugin.settings = { ...DEFAULT_SETTINGS, customCursorStyle: 'block' };
+		plugin.colorProvider = new ColorProvider();
+
+		const contentDOM = document.createElement('div');
+		contentDOM.className = 'cm-content';
+		const dom = document.createElement('div');
+		dom.className = 'cm-editor';
+		dom.appendChild(contentDOM);
+
+		const mockView = {
+			state: {
+				doc: {
+					length: docText.length,
+					lineAt: () => ({ from: 0, to: docText.length, number: 1, text: docText })
+				},
+				selection: {
+					main: { head: 0, anchor: 0, assoc: -1 as const, empty: true },
+					ranges: [{ head: 0, anchor: 0 }]
+				}
+			},
+			coordsAtPos: () => ({ left: 100, right: 110, top: 10, bottom: 30 }),
+			domAtPos: () => ({ node: null, offset: 0 }),
+			scrollDOM: createMockScrollDOM(),
+			contentDOM,
+			dom,
+			defaultCharacterWidth: 10,
+			defaultLineHeight: 20,
+			hasFocus: true,
+			composing: false,
+			requestMeasure: vi.fn()
+		};
+
+		const cursorPlugin = new CustomCursorViewPlugin(mockView as never, plugin);
+		const measureReq = (cursorPlugin as any).buildMeasureReq();
+
+		// When measure is valid, write() adds suppression classes to contentDOM and dom
+		const measure = measureReq.read(mockView);
+		measureReq.write(measure);
+
+		expect(contentDOM.classList.contains('visible-cursor-hide-caret')).toBe(true);
+		expect(dom.classList.contains('visible-cursor-hide-default')).toBe(true);
+
+		// When measure is null (e.g. editor blurred or customCursorMode off), classes are removed
+		measureReq.write(null);
+		expect(contentDOM.classList.contains('visible-cursor-hide-caret')).toBe(false);
+		expect(dom.classList.contains('visible-cursor-hide-default')).toBe(false);
+
+		// Re-add and verify destroy() cleans up classes
+		measureReq.write(measure);
+		expect(contentDOM.classList.contains('visible-cursor-hide-caret')).toBe(true);
+		expect(dom.classList.contains('visible-cursor-hide-default')).toBe(true);
+
+		cursorPlugin.destroy();
+		expect(contentDOM.classList.contains('visible-cursor-hide-caret')).toBe(false);
+		expect(dom.classList.contains('visible-cursor-hide-default')).toBe(false);
+	});
 });
+

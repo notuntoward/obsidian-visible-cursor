@@ -521,5 +521,66 @@ test('block cursor at line-start collapsed link position renders the visible ali
 	expect(result.textContent).toBe('F');
 });
 
+test('suppresses default CodeMirror cursor layer and aligns coordinates at collapsed link position', async ({ page }) => {
+	const doc = '[[test-notes/Note-01.md|First Link]] with some text';
+	await page.evaluate((d) => {
+		window.__visibleCursorHarness?.setDoc(d, 0);
+	}, doc);
+
+	await page.waitForTimeout(100);
+
+	const result = await page.evaluate(() => {
+		const harness = window.__visibleCursorHarness;
+		if (!harness) throw new Error('Harness unavailable');
+		const view = harness.getView() as import('@codemirror/view').EditorView;
+
+		const origCoords = view.coordsAtPos.bind(view);
+		const aliasOffset = harness.getDoc().indexOf('First Link');
+		const aliasCoords = origCoords(aliasOffset, -1);
+
+		if (aliasCoords) {
+			view.coordsAtPos = ((pos: number, assoc?: 1 | -1) => {
+				if (pos < aliasOffset) {
+					return {
+						top: aliasCoords.top,
+						bottom: aliasCoords.bottom,
+						left: aliasCoords.left - 2,
+						right: aliasCoords.left - 1
+					};
+				}
+				return origCoords(pos, assoc);
+			}) as typeof view.coordsAtPos;
+		}
+
+		harness.setCursor(30);
+		harness.dispatchEmacsMoveToStart(0);
+		(view as any).measure();
+
+		const rect = harness.getCustomCursorRect();
+		const editorDom = view.dom;
+		const cursorLayer = editorDom.querySelector('.cm-cursorLayer') as HTMLElement | null;
+		const defaultCursor = editorDom.querySelector('.cm-cursor') as HTMLElement | null;
+
+		const layerDisplay = cursorLayer ? window.getComputedStyle(cursorLayer).display : null;
+		const cursorDisplay = defaultCursor ? window.getComputedStyle(defaultCursor).display : null;
+		const hasHideClass = editorDom.classList.contains('visible-cursor-hide-default');
+
+		return {
+			rect,
+			aliasLeft: aliasCoords?.left,
+			layerDisplay,
+			cursorDisplay,
+			hasHideClass
+		};
+	});
+
+	expect(result.hasHideClass).toBe(true);
+	expect(result.layerDisplay).toBe('none');
+	expect(result.cursorDisplay).toBe('none');
+	expect(result.rect).not.toBeNull();
+	// Block cursor left must match visible character cell left, not the collapsed syntax left (-2px)
+	expect(Math.abs(result.rect!.left - result.aliasLeft!)).toBeLessThan(1);
+});
+
 
 
