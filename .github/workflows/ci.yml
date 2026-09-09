@@ -1,11 +1,16 @@
-name: CI
+name: Tests
 
-on: [pull_request]
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+    branches: [master, main]
 
 permissions: read-all
 
 jobs:
   test:
+    name: Unit Tests
     runs-on: ubuntu-latest
     permissions:
       contents: read
