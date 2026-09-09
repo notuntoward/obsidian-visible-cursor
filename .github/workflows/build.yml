@@ -17,6 +17,8 @@ jobs:
   build:
     name: ESLint and build
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
 
     steps:
       - name: Checkout
