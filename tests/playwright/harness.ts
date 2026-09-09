@@ -124,6 +124,24 @@ const harness: VisibleCursorHarness = {
 			annotations: Transaction.userEvent.of('emacs.moveToBeginning')
 		});
 	},
+	dispatchEmacsMoveToEnd(targetPos: number) {
+		view.dispatch({
+			selection: EditorSelection.cursor(targetPos, -1),
+			annotations: Transaction.userEvent.of('emacs.moveToEnd')
+		});
+	},
+	dispatchEmacsMoveDown(targetPos: number) {
+		view.dispatch({
+			selection: EditorSelection.cursor(targetPos),
+			annotations: Transaction.userEvent.of('emacs.moveDown')
+		});
+	},
+	dispatchEmacsMoveUp(targetPos: number) {
+		view.dispatch({
+			selection: EditorSelection.cursor(targetPos),
+			annotations: Transaction.userEvent.of('emacs.moveUp')
+		});
+	},
 	async pressKey(key: string) {
 		view.focus();
 		const event = new KeyboardEvent('keydown', { key, bubbles: true });

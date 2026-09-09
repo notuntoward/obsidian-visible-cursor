@@ -24,7 +24,7 @@ vi.mock('obsidian', () => ({
 	Setting: class Setting {}
 }));
 
-import VisibleCursorPlugin from '../main';
+import VisibleCursorPlugin, { isSoftWrap } from '../main';
 
 type Rect = { top: number; bottom: number; left: number; right: number };
 
@@ -202,4 +202,108 @@ describe('home navigation wrap diagnostics', () => {
 		expect(view.dispatch).not.toHaveBeenCalled();
 		expect(plugin.blockWrapState).toBeNull();
 	});
+
+	it('sets lastUserEvent for emacs.moveToEnd jumps (handled by buildMeasureReq)', () => {
+		const plugin = makePlugin();
+		const view = makeView(
+			{
+				'0:-1': { top: 0, bottom: 20, left: 0, right: 8 },
+				'100:-1': { top: 0, bottom: 20, left: 800, right: 808 }
+			},
+			100,
+			-1
+		);
+
+		const navCorrection = getNavCorrection(plugin);
+		navCorrection(makeUpdate(view, 0, -1, 100, -1, ['emacs.moveToEnd']));
+
+		expect(view.dispatch).not.toHaveBeenCalled();
+		expect(plugin.blockWrapState).toBeNull();
+		expect((plugin as { lastUserEvent: string }).lastUserEvent).toBe('end');
+	});
+
+	it('does not trigger wrap-correction on emacs.moveDown even when offset difference is 1', () => {
+		const plugin = makePlugin();
+		const view = makeView(
+			{
+				'10:-1': { top: 0, bottom: 20, left: 50, right: 58 },
+				'11:-1': { top: 20, bottom: 40, left: 50, right: 58 },
+				'11:1': { top: 20, bottom: 40, left: 50, right: 58 }
+			},
+			11,
+			-1
+		);
+
+		const navCorrection = getNavCorrection(plugin);
+		navCorrection(makeUpdate(view, 10, -1, 11, -1, ['emacs.moveDown']));
+
+		expect(view.dispatch).not.toHaveBeenCalled();
+		expect(plugin.blockWrapState).toBeNull();
+	});
+
+	it('cleans up wrap state and does not dispatch corrections when landing on blank lines', () => {
+		const plugin = makePlugin();
+		plugin.blockWrapState = { logicalPos: 10, showPos: 10, assoc: 1 };
+		(plugin as { lastUserEvent: string }).lastUserEvent = 'home';
+		const view = makeView({}, 0, -1);
+		view.state.doc.lineAt = () => ({ from: 0, to: 0, number: 1, text: '' });
+
+		const navCorrection = getNavCorrection(plugin);
+		navCorrection(makeUpdate(view, 10, 1, 0, -1));
+
+		expect(view.dispatch).not.toHaveBeenCalled();
+		expect(plugin.blockWrapState).toBeNull();
+		expect((plugin as { lastUserEvent: string }).lastUserEvent).toBe('');
+	});
+
+	it('ignores external programmatic selection transactions like select.steadyLinks', () => {
+		const plugin = makePlugin();
+		const view = makeView({}, 50, -1);
+
+		const navCorrection = getNavCorrection(plugin);
+		navCorrection(makeUpdate(view, 10, -1, 50, -1, ['select.steadyLinks']));
+
+		expect(view.dispatch).not.toHaveBeenCalled();
+		expect(plugin.blockWrapState).toBeNull();
+	});
+
+	it('isSoftWrap returns false at line start (pos === line.from) even if coordsBefore and coordsAfter differ', () => {
+		const coordsAtPos = vi.fn((pos: number, assoc?: number) => {
+			if (assoc === -1) return { top: 0, bottom: 20, left: 100, right: 100 };
+			return { top: 20, bottom: 40, left: 0, right: 8 };
+		});
+		const view = {
+			state: {
+				doc: {
+					lineAt: (pos: number) => ({ from: 10, to: 30, number: 2, text: 'some line' }),
+				},
+			},
+			coordsAtPos,
+			defaultLineHeight: 20,
+		} as unknown as Parameters<typeof isSoftWrap>[0];
+
+		// At column 0 of line 2: pos === line.from (10)
+		expect(isSoftWrap(view, 10)).toBe(false);
+		// At line end: pos === line.to (30)
+		expect(isSoftWrap(view, 30)).toBe(false);
+	});
+
+	it('does not dispatch wrap-correction when moving from blank line (delta=1) to next line start', () => {
+		const plugin = makePlugin();
+		// Line 1: blank line (0..0, length 0, ends with newline at offset 0)
+		// Line 2: next line starts at offset 1
+		const view = makeView({}, 1, -1);
+		view.state.doc.lineAt = (pos: number) => {
+			if (pos === 0) return { from: 0, to: 0, number: 1, text: '' };
+			return { from: 1, to: 40, number: 2, text: '[[Note-05|Standalone Line Link]]' };
+		};
+
+		const navCorrection = getNavCorrection(plugin);
+		// oldHead = 0 (blank line), newHead = 1 (column 0 of line 2)
+		navCorrection(makeUpdate(view, 0, -1, 1, -1));
+
+		expect(view.dispatch).not.toHaveBeenCalled();
+		expect(plugin.blockWrapState).toBeNull();
+	});
 });
+

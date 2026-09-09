@@ -18,7 +18,7 @@ export function isSoftWrap(view: EditorView, pos: number): boolean {
   if (!view || !view.state || !view.state.doc) return false;
   try {
     const line = view.state.doc.lineAt(pos);
-    if (pos === line.to) return false;
+    if (pos <= line.from || pos >= line.to) return false;
 
     const coordsBefore = view.coordsAtPos(pos, -1);
     const coordsAfter = view.coordsAtPos(pos, 1);
@@ -208,7 +208,12 @@ export class CustomCursorViewPlugin {
             typeof getComputedStyle === "function"
               ? getComputedStyle(element)
               : null;
+          const isCollapsedSyntax =
+            element.hasAttribute("data-collapsed-syntax") ||
+            element.classList.contains("steady-links-collapsed") ||
+            element.classList.contains("cm-widgetBuffer");
           if (
+            isCollapsedSyntax ||
             ariaHidden === "true" ||
             style?.display === "none" ||
             style?.visibility === "hidden" ||
@@ -360,8 +365,11 @@ export class CustomCursorViewPlugin {
                 !!(cb && ca && Math.abs(cb.top - ca.top) > view.defaultLineHeight * 0.3);
               assocForCoords = isSoftWrapBoundary ? 1 : (sel.assoc || -1);
               forceCoordAPI = true;
+            } else if (lastEvent === "end") {
+              assocForCoords = -1;
+              forceCoordAPI = true;
             } else {
-              // Default: sel.assoc.  End key, click, multi-char jumps, etc. all
+              // Default: sel.assoc.  Click, multi-char jumps, etc. all
               // arrive here with whatever assoc CM6 assigned — respected as-is.
               assocForCoords = sel.assoc || -1;
             }
@@ -460,58 +468,69 @@ export class CustomCursorViewPlugin {
           const domNode = domInfo.node ?? null;
 
           let isEndOfVisualLine = false;
-          if (assocForCoords === -1 && visualPos < doc.length) {
-            const coordsBefore = view.coordsAtPos(visualPos, -1);
-            const coordsAfter = view.coordsAtPos(visualPos, 1);
-            const wrapThreshold = view.defaultLineHeight * 0.3;
-            if (
-              coordsBefore &&
-              coordsAfter &&
-              Math.abs(coordsBefore.top - coordsAfter.top) > wrapThreshold
-            ) {
-              isEndOfVisualLine = true;
-            }
-          }
+          let positionStartsInCollapsedSyntax = false;
+          let rightCoords: { left: number; right: number; top: number; bottom: number } | null = null;
+          let measuredWidthFromCoords: number | null = null;
 
           if (visualPos < doc.length) {
             const line = view.state.doc.lineAt(visualPos);
-            if (visualPos === line.to || isEndOfVisualLine) {
+            if (line.from === line.to) {
+              // Blank line: assign standard space glyph and character width immediately
               char = " ";
+              charWidth = view.defaultCharacterWidth || 10;
             } else {
-              const text = line.text;
-              const offset = visualPos - line.from;
-              const codePoint = text.codePointAt(offset);
-              if (codePoint !== undefined) {
-                char = String.fromCodePoint(codePoint);
-              } else {
+              if (assocForCoords === -1) {
+                const coordsBefore = view.coordsAtPos(visualPos, -1);
+                const coordsAfter = view.coordsAtPos(visualPos, 1);
+                const wrapThreshold = view.defaultLineHeight * 0.3;
+                if (
+                  coordsBefore &&
+                  coordsAfter &&
+                  Math.abs(coordsBefore.top - coordsAfter.top) > wrapThreshold
+                ) {
+                  isEndOfVisualLine = true;
+                }
+              }
+
+              if (visualPos === line.to || isEndOfVisualLine) {
                 char = " ";
+              } else {
+                const text = line.text;
+                const offset = visualPos - line.from;
+                const codePoint = text.codePointAt(offset);
+                if (codePoint !== undefined) {
+                  char = String.fromCodePoint(codePoint);
+                } else {
+                  char = " ";
+                }
+              }
+
+              const vpos1 = Math.min(
+                doc.length,
+                visualPos + Math.max(char.length, 1),
+              );
+              rightCoords =
+                vpos1 > visualPos ? view.coordsAtPos(vpos1, 1) : null;
+              positionStartsInCollapsedSyntax =
+                isZeroWidthOrCollapsedNode(domNode);
+              measuredWidthFromCoords = rightCoords
+                ? rightCoords.left - coordsLeft
+                : null;
+              if (
+                !positionStartsInCollapsedSyntax &&
+                rightCoords &&
+                rightCoords.left > coordsLeft &&
+                !isEndOfVisualLine
+              ) {
+                const width = rightCoords.left - coordsLeft;
+                const maxWidth = (view.defaultCharacterWidth || 10) * 1.75;
+                charWidth = width > maxWidth ? (view.defaultCharacterWidth || 10) : width;
+              } else {
+                charWidth = view.defaultCharacterWidth || 10;
               }
             }
           } else {
             char = " ";
-          }
-
-          const vpos1 = Math.min(
-            doc.length,
-            visualPos + Math.max(char.length, 1),
-          );
-          const rightCoords =
-            vpos1 > visualPos ? view.coordsAtPos(vpos1, 1) : null;
-          const positionStartsInCollapsedSyntax =
-            isZeroWidthOrCollapsedNode(domNode);
-          const measuredWidthFromCoords = rightCoords
-            ? rightCoords.left - coordsLeft
-            : null;
-          if (
-            !positionStartsInCollapsedSyntax &&
-            rightCoords &&
-            rightCoords.left > coordsLeft &&
-            !isEndOfVisualLine
-          ) {
-            const width = rightCoords.left - coordsLeft;
-            const maxWidth = (view.defaultCharacterWidth || 10) * 1.75;
-            charWidth = width > maxWidth ? (view.defaultCharacterWidth || 10) : width;
-          } else {
             charWidth = view.defaultCharacterWidth || 10;
           }
 
@@ -1456,10 +1475,46 @@ export default class VisibleCursorPlugin extends Plugin {
       // any wrap-correction transactions. The user is selecting text, not navigating.
       if (!sel.empty) return;
 
-      if (update.transactions.some((t) => t.isUserEvent("select.pointer")))
+      if (
+        update.transactions.some(
+          (t) =>
+            t.isUserEvent("select.pointer") ||
+            t.isUserEvent("select.steadyLinks") ||
+            t.isUserEvent("select.programmatic"),
+        )
+      ) {
         return;
-      if (update.transactions.some((t) => t.isUserEvent("emacs.moveToEnd")))
+      }
+
+      const currentDoc = update.view.state.doc;
+      const currentLine = currentDoc.lineAt(pos);
+      if (currentLine.from === currentLine.to) {
+        // Blank line: tear down all wrap/event states; never dispatch wrap corrections on empty lines.
+        plugin.lastKey = "";
+        plugin.lastUserEvent = "";
+        plugin.blockWrapState = null;
+        pendingDownFromWrapPos = null;
         return;
+      }
+
+      if (
+        update.transactions.some(
+          (t) =>
+            t.isUserEvent("emacs.moveToEnd") ||
+            t.isUserEvent("selectLineEnd"),
+        )
+      ) {
+        debugNav("navCorrection:end-move", {
+          consumedKey: plugin.lastKey,
+          oldHead: oldSel.head,
+          newHead: pos,
+        });
+        plugin.lastKey = "";
+        plugin.lastUserEvent = "end";
+        plugin.blockWrapState = null;
+        pendingDownFromWrapPos = null;
+        return;
+      }
 
       // emacs.moveToBeginning (Emacs: move to beginning of line) is a horizontal
       // jump that can be any size (1 char or the full line length), so we handle
@@ -1478,10 +1533,19 @@ export default class VisibleCursorPlugin extends Plugin {
         return;
       }
 
+      // Explicit Emacs vertical motion events
+      const isEmacsVerticalMove = update.transactions.some(
+        (t) =>
+          t.isUserEvent("emacs.moveDown") ||
+          t.isUserEvent("emacs.moveUp"),
+      );
 
+      const isSameLine =
+        currentDoc.lineAt(oldSel.head).number ===
+        currentDoc.lineAt(pos).number;
 
       // 1. Handle moving FORWARD by 1 char from a wrap boundary (e.g. Emacs forward char after End key)
-      if (pos - oldSel.head === 1) {
+      if (!isEmacsVerticalMove && isSameLine && pos - oldSel.head === 1) {
         if (isSoftWrap(update.view, pos)) {
           plugin.blockWrapState = { logicalPos: pos, showPos: pos, assoc: 1 };
           pendingDownFromWrapPos = pos;
@@ -1512,6 +1576,8 @@ export default class VisibleCursorPlugin extends Plugin {
 
       // 1b. Handle moving BACKWARD by 1 char onto a wrap boundary
       if (
+        !isEmacsVerticalMove &&
+        isSameLine &&
         pos - oldSel.head === -1 &&
         isSoftWrap(update.view, pos) &&
         sel.assoc !== 1
@@ -1528,7 +1594,7 @@ export default class VisibleCursorPlugin extends Plugin {
       }
 
       // 2. Generalized vertical movement correction
-      if (pos !== oldSel.head && Math.abs(pos - oldSel.head) > 1) {
+      if (pos !== oldSel.head && (!isSameLine || Math.abs(pos - oldSel.head) > 1)) {
         // Consume lastKey immediately: it is a one-shot signal valid only for the
         // single navCorrection cycle that follows the keydown that set it.
         // Consuming here prevents stale 'End'/'Home' values from suppressing
@@ -1566,7 +1632,7 @@ export default class VisibleCursorPlugin extends Plugin {
             newHead: pos,
           });
           plugin.blockWrapState = null;
-          plugin.lastUserEvent = "";
+          plugin.lastUserEvent = "end";
           pendingDownFromWrapPos = null;
           return;
         }

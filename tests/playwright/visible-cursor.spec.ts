@@ -218,3 +218,257 @@ test('block cursor on soft-wrap boundary with assoc=1 renders on the continuatio
 	// The block cursor must contain the correct character
 	expect(result.textContent).toBe(result.expectedChar);
 });
+
+test('emacs.moveToEnd on soft-wrapped line renders cursor at visual line end with clean space', async ({ page }) => {
+	const text = 'The quick brown fox jumps over the lazy dog and runs away into the deep dark forest on a sunny afternoon in spring.';
+	await page.evaluate((doc) => {
+		const harness = window.__visibleCursorHarness;
+		if (!harness) throw new Error('Harness unavailable');
+		const view = harness.getView() as import('@codemirror/view').EditorView;
+		view.dom.style.width = '200px';
+		harness.setDoc(doc, 0);
+	}, text);
+
+	await page.waitForTimeout(100);
+
+	const result = await page.evaluate(() => {
+		const harness = window.__visibleCursorHarness;
+		if (!harness) throw new Error('Harness unavailable');
+		const view = harness.getView() as import('@codemirror/view').EditorView;
+		const docText = harness.getDoc();
+
+		// Find soft wrap boundary
+		let softWrapPos = -1;
+		for (let p = 1; p < docText.length - 1; p++) {
+			const c1 = view.coordsAtPos(p, -1);
+			const c2 = view.coordsAtPos(p, 1);
+			if (c1 && c2 && Math.abs(c1.top - c2.top) > 5) {
+				softWrapPos = p;
+				break;
+			}
+		}
+
+		if (softWrapPos !== -1) {
+			// Dispatch emacs.moveToEnd to the boundary position
+			harness.dispatchEmacsMoveToEnd(softWrapPos);
+			(view as any).measure();
+
+			const rect = harness.getCustomCursorRect();
+			const textContent = harness.getCustomCursorText();
+			const defaultWidth = harness.getDefaultCharWidth();
+			return { softWrapPos, rect, textContent, defaultWidth };
+		}
+		return { softWrapPos: -1, rect: null, textContent: null, defaultWidth: 10 };
+	});
+
+	expect(result.softWrapPos).not.toBe(-1);
+	expect(result.rect).not.toBeNull();
+	expect(result.rect!.width).toBeGreaterThanOrEqual(result.defaultWidth * 0.5);
+	expect(result.textContent).toBe(' ');
+});
+
+test('block cursor on blank line renders standard character width without error', async ({ page }) => {
+	const doc = 'Before\n\n[[test-notes/Note-09.md#Note Nine |Note Nine]]\n\nAfter';
+	await page.evaluate((d) => {
+		window.__visibleCursorHarness?.setDoc(d, 7); // position 7 is the first blank line
+	}, doc);
+
+	await page.waitForTimeout(100);
+
+	const result = await page.evaluate(() => {
+		const harness = window.__visibleCursorHarness;
+		if (!harness) throw new Error('Harness unavailable');
+		const rect = harness.getCustomCursorRect();
+		const defaultWidth = harness.getDefaultCharWidth();
+		const textContent = harness.getCustomCursorText();
+		return { rect, defaultWidth, textContent };
+	});
+
+	expect(result.rect).not.toBeNull();
+	expect(result.rect!.width).toBeGreaterThanOrEqual(result.defaultWidth * 0.5);
+	expect(result.rect!.width).toBeLessThanOrEqual(result.defaultWidth * 1.75);
+	expect(result.textContent).toBe(' ');
+});
+
+test('navigating from blank line into wikilink alias renders full width character', async ({ page }) => {
+	const doc = 'Before\n\n[[test-notes/Note-09.md#Note Nine |Note Nine]]\n\nAfter';
+	await page.evaluate((d) => {
+		window.__visibleCursorHarness?.setDoc(d, 7); // on blank line
+	}, doc);
+
+	await page.waitForTimeout(100);
+
+	// Navigate to alias start
+	const result = await page.evaluate(() => {
+		const harness = window.__visibleCursorHarness;
+		if (!harness) throw new Error('Harness unavailable');
+		const aliasStart = harness.getDoc().indexOf('Note Nine');
+		harness.setCursor(aliasStart);
+
+		const rect = harness.getCustomCursorRect();
+		const textContent = harness.getCustomCursorText();
+		const defaultWidth = harness.getDefaultCharWidth();
+		return { rect, textContent, defaultWidth };
+	});
+
+	expect(result.rect).not.toBeNull();
+	expect(result.rect!.width).toBeGreaterThanOrEqual(result.defaultWidth * 0.5);
+	expect(result.textContent).toBe('N');
+});
+
+test('block cursor on list item starting with wikilink retains normal width and does not stretch across bullet', async ({ page }) => {
+	const doc = '- [[test-notes/Note-09.md#Note Nine |Note Nine]]';
+	await page.evaluate((d) => {
+		window.__visibleCursorHarness?.setDoc(d, 0);
+	}, doc);
+
+	await page.waitForTimeout(100);
+
+	const result = await page.evaluate(() => {
+		const harness = window.__visibleCursorHarness;
+		if (!harness) throw new Error('Harness unavailable');
+		const aliasStart = harness.getDoc().indexOf('Note Nine');
+		harness.setCursor(aliasStart);
+
+		const rect = harness.getCustomCursorRect();
+		const defaultWidth = harness.getDefaultCharWidth();
+		const textContent = harness.getCustomCursorText();
+		return { rect, defaultWidth, textContent };
+	});
+
+	expect(result.rect).not.toBeNull();
+	expect(result.rect!.width).toBeGreaterThanOrEqual(result.defaultWidth * 0.5);
+	expect(result.rect!.width).toBeLessThanOrEqual(result.defaultWidth * 1.75);
+	expect(result.textContent).toBe('N');
+});
+
+test('emacs.moveToEnd on line ending with wikilink renders valid cursor at line end', async ({ page }) => {
+	const doc = 'Leading text [[test-notes/Note-09.md#Note Nine |Note Nine]]';
+	await page.evaluate((d) => {
+		window.__visibleCursorHarness?.setDoc(d, 0);
+	}, doc);
+
+	await page.waitForTimeout(100);
+
+	const result = await page.evaluate(() => {
+		const harness = window.__visibleCursorHarness;
+		if (!harness) throw new Error('Harness unavailable');
+		const view = harness.getView() as import('@codemirror/view').EditorView;
+		harness.dispatchEmacsMoveToEnd(harness.getDoc().length);
+		(view as any).measure();
+
+		const rect = harness.getCustomCursorRect();
+		const defaultWidth = harness.getDefaultCharWidth();
+		const textContent = harness.getCustomCursorText();
+		return { rect, defaultWidth, textContent };
+	});
+
+	expect(result.rect).not.toBeNull();
+	expect(result.rect!.width).toBeGreaterThanOrEqual(result.defaultWidth * 0.5);
+	expect(result.textContent).toBe(' ');
+});
+
+test('comprehensive multi-topology integration test across blank lines, lists, and start/end links', async ({ page }) => {
+	const doc = [
+		'',
+		'[[test-notes/Note-01.md|First Link]] with some text',
+		'',
+		'Middle item [[test-notes/Note-02.md|Middle Link]] trailing',
+		'',
+		'- [[test-notes/Note-03.md|List Start Link]] followed by text',
+		'  - Indented item ending with [[test-notes/Note-04.md|Last Link]]',
+		'[[test-notes/Note-05.md|Standalone Link]]',
+		''
+	].join('\n');
+
+	await page.evaluate((d) => {
+		window.__visibleCursorHarness?.setDoc(d, 0);
+	}, doc);
+
+	await page.waitForTimeout(100);
+
+	const verification = await page.evaluate(() => {
+		const harness = window.__visibleCursorHarness;
+		if (!harness) throw new Error('Harness unavailable');
+		const view = harness.getView() as import('@codemirror/view').EditorView;
+		const docText = harness.getDoc();
+		const lines = docText.split('\n');
+		const defaultWidth = harness.getDefaultCharWidth();
+
+		const stepResults: Array<{
+			lineIndex: number;
+			isClean: boolean;
+			char: string | null;
+			width: number;
+		}> = [];
+
+		let currentOffset = 0;
+		for (let i = 0; i < lines.length; i++) {
+			const line = lines[i];
+			if (line.length === 0) {
+				// Blank line: verify clean space
+				harness.setCursor(currentOffset);
+				(view as any).measure();
+				const rect = harness.getCustomCursorRect();
+				const text = harness.getCustomCursorText();
+				stepResults.push({
+					lineIndex: i,
+					isClean: rect !== null && rect.width >= defaultWidth * 0.5 && rect.width <= defaultWidth * 1.75,
+					char: text,
+					width: rect?.width ?? 0
+				});
+			} else {
+				// Line with content: test beginning of line / alias
+				const aliasIdx = line.indexOf('|');
+				const targetPos = aliasIdx !== -1 ? currentOffset + aliasIdx + 1 : currentOffset;
+				harness.setCursor(targetPos);
+				(view as any).measure();
+				const rect = harness.getCustomCursorRect();
+				const text = harness.getCustomCursorText();
+				stepResults.push({
+					lineIndex: i,
+					isClean: rect !== null && rect.width >= defaultWidth * 0.5 && rect.width <= defaultWidth * 1.75,
+					char: text,
+					width: rect?.width ?? 0
+				});
+			}
+			currentOffset += line.length + 1;
+		}
+
+		return { stepResults, defaultWidth };
+	});
+
+	for (const step of verification.stepResults) {
+		expect(step.isClean).toBe(true);
+		expect(step.char).not.toBe('[');
+		expect(step.char).not.toBe(']');
+	}
+});
+
+test('ArrowDown from blank line onto line start moves cursor down without wrap-correction interception', async ({ page }) => {
+	const doc = 'First line\n\n[[test-notes/Note-05.md|Standalone Line Link]]\n';
+	await page.evaluate((d) => {
+		// Place cursor on blank line (offset 11: after "First line\n")
+		window.__visibleCursorHarness?.setDoc(d, 11);
+	}, doc);
+
+	await page.waitForTimeout(100);
+
+	// Press ArrowDown
+	await page.keyboard.press('ArrowDown');
+	await page.waitForTimeout(100);
+
+	const afterDown = await page.evaluate(() => {
+		const harness = window.__visibleCursorHarness;
+		if (!harness) throw new Error('Harness unavailable');
+		const head = harness.getCursor().head;
+		const rect = harness.getCustomCursorRect();
+		return { head, rect };
+	});
+
+	// Cursor must have left the blank line (offset 11) and moved to line 3 (offset >= 12)
+	expect(afterDown.head).toBeGreaterThan(11);
+	expect(afterDown.rect).not.toBeNull();
+});
+
+
