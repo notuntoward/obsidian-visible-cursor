@@ -6,11 +6,12 @@
 	"scripts": {
 		"lint": "eslint . --max-warnings=0",
 		"dev": "node esbuild.config.mjs",
-		"build": "npm run lint && tsc -noEmit -skipLibCheck && node esbuild.config.mjs production",
-		"test": "vitest",
+		"build": "npm run lint && npm test && tsc -noEmit -skipLibCheck && node esbuild.config.mjs production",
+		"test": "vitest run",
 		"test:run": "vitest run",
 		"test:coverage": "vitest run --coverage",
-		"test:browser": "playwright test"
+		"test:browser": "playwright test",
+		"test:watch": "vitest"
 	},
 	"keywords": [
 		"cursor",
