@@ -110,6 +110,43 @@ To test in real Obsidian with Steady Links active:
    log appears, Steady Links is NOT correctly redirecting to textFrom and
    has regressed
 
+## Critical: Block cursor positioning on soft-wrapped line ends (End key / Emacs end-of-line)
+
+On soft-wrapped lines, CodeMirror 6 breaks a line at offset `P` (the start of the
+continuation line). CM6 line-boundary commands target `(P, -1)`, which represents
+the insertion caret right at the line wrap.
+
+For a 1px caret cursor, `coordsAtPos(P, -1)` correctly renders at the end of the
+text. However, for a block cursor overlay, placing the block at `coordsAtPos(P, -1)`
+draws it to the *right* of character `P - 1` into empty margin space (floating cursor).
+
+In standard block cursor implementations (Emacs, Vim, etc.), placing the cursor at
+the visual line end means covering the trailing character on that visual line
+(`P - 1`, typically the space character before the wrap). A subsequent right arrow
+then advances cleanly to the first character of the continuation line (`P`).
+
+### Mandatory 3-Layer Defense Invariants
+
+1. **Keymap Direct Navigation (`handleEnd` in `Prec.highest`)**:
+   Intercepts physical <kbd>End</kbd> key presses, scans forward for `nextVisualStart`,
+   and dispatches selection directly to `nextVisualStart - 1` (`assoc: -1`).
+2. **Transaction Correction (`navCorrection`)**:
+   When an end-move transaction (`emacs.moveToEnd`, `selectLineEnd`, `selectLineBoundaryForward`,
+   `selectLineBoundaryRight`, or `lastKey === "End"`) lands on a soft-wrap boundary
+   (`isSoftWrap(view, pos)`), dispatches a corrective transaction to `pos - 1` (`assoc: -1`).
+3. **Measurement Fallback (`buildMeasureReq`)**:
+   When `isEndOfVisualLine && visualPos > line.from` triggers, snaps `targetPos = visualPos - 1`,
+   extracts the character at `targetPos`, measures `coordsLeft = view.coordsAtPos(targetPos, -1).left`,
+   and computes `charWidth = coordsBefore.left - cellCoords.left`. This ensures that even if an
+   external command lands on `(P, -1)` without triggering layer 1 or 2, the block cursor never
+   floats in the margin.
+
+### What NOT to do
+
+- Do NOT remove `handleEnd` from `Prec.highest` keymap.
+- Do NOT remove the `isEndMove` soft-wrap check in `navCorrection`.
+- Do NOT overwrite `charWidth` with `defaultCharacterWidth` when `isEndOfVisualLine` is true.
+
 ## Testing infrastructure
 
 - **Vitest** (`npm run test:run`): 145+ unit tests for settings, color,

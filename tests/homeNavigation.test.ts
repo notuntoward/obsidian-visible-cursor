@@ -222,6 +222,62 @@ describe('home navigation wrap diagnostics', () => {
 		expect((plugin as { lastUserEvent: string }).lastUserEvent).toBe('end');
 	});
 
+	it('dispatches pos - 1 correction when end-move lands on a soft-wrap boundary', () => {
+		const plugin = makePlugin();
+		const view = makeView(
+			{
+				'0:-1': { top: 0, bottom: 20, left: 0, right: 8 },
+				'50:-1': { top: 0, bottom: 20, left: 800, right: 808 },
+				'50:1': { top: 20, bottom: 40, left: 0, right: 8 }
+			},
+			50,
+			-1
+		);
+
+		const navCorrection = getNavCorrection(plugin);
+		navCorrection(makeUpdate(view, 0, -1, 50, -1, ['emacs.moveToEnd']));
+
+		expect(view.dispatch).toHaveBeenCalled();
+		expect((plugin as { lastUserEvent: string }).lastUserEvent).toBe('end');
+	});
+
+	it('dispatches pos - 1 correction for selectLineEnd, selectLineBoundaryRight, and physical End key on soft wrap', () => {
+		const events = ['selectLineEnd', 'selectLineBoundaryForward', 'selectLineBoundaryRight'];
+		for (const event of events) {
+			const plugin = makePlugin();
+			const view = makeView(
+				{
+					'0:-1': { top: 0, bottom: 20, left: 0, right: 8 },
+					'50:-1': { top: 0, bottom: 20, left: 800, right: 808 },
+					'50:1': { top: 20, bottom: 40, left: 0, right: 8 }
+				},
+				50,
+				-1
+			);
+			const navCorrection = getNavCorrection(plugin);
+			navCorrection(makeUpdate(view, 0, -1, 50, -1, [event]));
+			expect(view.dispatch).toHaveBeenCalled();
+			expect((plugin as { lastUserEvent: string }).lastUserEvent).toBe('end');
+		}
+
+		// Also test large move with plugin.lastKey = "End"
+		const plugin = makePlugin();
+		(plugin as { lastKey: string }).lastKey = 'End';
+		const view = makeView(
+			{
+				'0:-1': { top: 0, bottom: 20, left: 0, right: 8 },
+				'50:-1': { top: 0, bottom: 20, left: 800, right: 808 },
+				'50:1': { top: 20, bottom: 40, left: 0, right: 8 }
+			},
+			50,
+			-1
+		);
+		const navCorrection = getNavCorrection(plugin);
+		navCorrection(makeUpdate(view, 0, -1, 50, -1, []));
+		expect(view.dispatch).toHaveBeenCalled();
+		expect((plugin as { lastUserEvent: string }).lastUserEvent).toBe('end');
+	});
+
 	it('does not trigger wrap-correction on emacs.moveDown even when offset difference is 1', () => {
 		const plugin = makePlugin();
 		const view = makeView(

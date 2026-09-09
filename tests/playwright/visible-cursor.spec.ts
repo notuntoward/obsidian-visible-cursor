@@ -582,5 +582,63 @@ test('suppresses default CodeMirror cursor layer and aligns coordinates at colla
 	expect(Math.abs(result.rect!.left - result.aliasLeft!)).toBeLessThan(1);
 });
 
+test('pressing End on soft-wrapped line places cursor on trailing character not in margin', async ({ page }) => {
+	const doc = '• [[test-notes/Note-03.md|List Start Link]] followed by a long sentence that soft wraps across multiple lines to test soft wrapping and lists together.';
+	await page.evaluate((d) => {
+		const harness = window.__visibleCursorHarness;
+		if (!harness) throw new Error('Harness unavailable');
+		const view = harness.getView() as import('@codemirror/view').EditorView;
+		view.dom.style.width = '300px';
+		harness.setDoc(d, 0);
+	}, doc);
+
+	await page.waitForTimeout(100);
+
+	await page.evaluate(() => {
+		const harness = window.__visibleCursorHarness;
+		const docText = harness!.getDoc();
+		const idx = docText.indexOf('followed');
+		harness!.setCursor(idx);
+	});
+	await page.waitForTimeout(100);
+
+	await page.keyboard.press('End');
+	await page.waitForTimeout(100);
+
+	const result = await page.evaluate(() => {
+		const harness = window.__visibleCursorHarness;
+		if (!harness) throw new Error('Harness unavailable');
+		const view = harness.getView() as import('@codemirror/view').EditorView;
+		const sel = view.state.selection.main;
+		const rect = harness.getCustomCursorRect();
+		const textContent = harness.getCustomCursorText();
+		const defaultWidth = harness.getDefaultCharWidth();
+
+		const cHeadBefore = view.coordsAtPos(sel.head, -1);
+		const cHeadAfter = view.coordsAtPos(sel.head, 1);
+
+		const c102 = view.coordsAtPos(102, 1);
+		const c104 = view.coordsAtPos(104, 1);
+
+		return {
+			head: sel.head,
+			assoc: sel.assoc,
+			rect,
+			textContent,
+			defaultWidth,
+			c102,
+			cHeadBefore,
+			cHeadAfter,
+			c104
+		};
+	});
+
+	expect(result.rect).not.toBeNull();
+	expect(result.head).toBe(103);
+	expect(result.textContent).toBe(' ');
+	// Cursor left must match the trailing character position (cHeadBefore), not wrapped to next line
+	expect(result.rect!.left).toBeCloseTo(result.cHeadBefore!.left, 0);
+});
+
 
 

@@ -501,7 +501,29 @@ export class CustomCursorViewPlugin {
                 }
               }
 
-              if (visualPos === line.to || isEndOfVisualLine) {
+              if (isEndOfVisualLine && visualPos > line.from) {
+                const targetPos = visualPos - 1;
+                const cellCoords = view.coordsAtPos(targetPos, -1);
+                if (cellCoords) {
+                  coordsLeft = cellCoords.left;
+                  coordsTop = cellCoords.top;
+                  coordsBottom = cellCoords.bottom;
+                  const offset = targetPos - line.from;
+                  const codePoint = line.text.codePointAt(offset);
+                  char =
+                    codePoint !== undefined
+                      ? String.fromCodePoint(codePoint)
+                      : " ";
+                  const coordsBefore = view.coordsAtPos(visualPos, -1);
+                  charWidth =
+                    coordsBefore && coordsBefore.left > cellCoords.left
+                      ? coordsBefore.left - cellCoords.left
+                      : view.defaultCharacterWidth || 10;
+                } else {
+                  char = " ";
+                  charWidth = view.defaultCharacterWidth || 10;
+                }
+              } else if (visualPos === line.to || isEndOfVisualLine) {
                 char = " ";
               } else {
                 const text = line.text;
@@ -539,7 +561,7 @@ export class CustomCursorViewPlugin {
                 }
               } else if (positionStartsInCollapsedSyntax) {
                 charWidth = 0;
-              } else {
+              } else if (!isEndOfVisualLine) {
                 charWidth = view.defaultCharacterWidth || 10;
               }
             }
@@ -1311,6 +1333,59 @@ export default class VisibleCursorPlugin extends Plugin {
       return false;
     };
 
+    const handleEnd = (view: EditorView): boolean => {
+      if (plugin.settings.customCursorStyle !== "block") return false;
+      if (view.state.selection.ranges.length > 1) return false;
+
+      const sel = view.state.selection.main;
+      if (!sel.empty) return false;
+
+      const pos = sel.head;
+      const doc = view.state.doc;
+      const line = doc.lineAt(pos);
+
+      // Find the visual top of the current position
+      const currentCoords =
+        view.coordsAtPos(pos, -1) ?? view.coordsAtPos(pos, 1);
+      if (!currentCoords) return false;
+
+      // Scan forward in the same logical line for the start of the next visual line
+      let nextVisualStart: number | null = null;
+      const threshold = (view.defaultLineHeight || 20) * 0.3;
+      for (let p = pos + 1; p <= line.to; p++) {
+        const c = view.coordsAtPos(p, 1);
+        if (c && c.top > currentCoords.top + threshold) {
+          nextVisualStart = p;
+          break;
+        }
+      }
+
+      plugin.blockWrapState = null;
+      pendingDownFromWrapPos = null;
+      plugin.lastKey = "End";
+
+      if (nextVisualStart !== null) {
+        const target = nextVisualStart - 1;
+        view.dispatch({
+          selection: EditorSelection.cursor(target, -1),
+          scrollIntoView: true,
+          annotations: Transaction.userEvent.of("emacs.moveToEnd"),
+        });
+        return true;
+      }
+
+      if (pos !== line.to) {
+        view.dispatch({
+          selection: EditorSelection.cursor(line.to, -1),
+          scrollIntoView: true,
+          annotations: Transaction.userEvent.of("emacs.moveToEnd"),
+        });
+        return true;
+      }
+
+      return false;
+    };
+
     const handleDown = (view: EditorView): boolean => {
       if (plugin.settings.customCursorStyle !== "block") return false;
 
@@ -1555,7 +1630,9 @@ export default class VisibleCursorPlugin extends Plugin {
         update.transactions.some(
           (t) =>
             t.isUserEvent("emacs.moveToEnd") ||
-            t.isUserEvent("selectLineEnd"),
+            t.isUserEvent("selectLineEnd") ||
+            t.isUserEvent("selectLineBoundaryForward") ||
+            t.isUserEvent("selectLineBoundaryRight"),
         )
       ) {
         debugNav("navCorrection:end-move", {
@@ -1567,6 +1644,15 @@ export default class VisibleCursorPlugin extends Plugin {
         plugin.lastUserEvent = "end";
         plugin.blockWrapState = null;
         pendingDownFromWrapPos = null;
+        if (pos > currentLine.from && isSoftWrap(update.view, pos)) {
+          update.view.dispatch({
+            selection: EditorSelection.cursor(pos - 1, -1),
+            scrollIntoView: true,
+            annotations: Transaction.userEvent.of(
+              "visible-cursor.wrap-correction",
+            ),
+          });
+        }
         return;
       }
 
@@ -1667,7 +1753,6 @@ export default class VisibleCursorPlugin extends Plugin {
             (t) =>
               t.isUserEvent("emacs.moveToBeginning") ||
               t.isUserEvent("selectLineStart") ||
-              t.isUserEvent("selectLineBoundaryForward") ||
               t.isUserEvent("selectLineBoundaryBackward"),
           );
 
@@ -1676,7 +1761,9 @@ export default class VisibleCursorPlugin extends Plugin {
           update.transactions.some(
             (t) =>
               t.isUserEvent("emacs.moveToEnd") ||
-              t.isUserEvent("selectLineEnd"),
+              t.isUserEvent("selectLineEnd") ||
+              t.isUserEvent("selectLineBoundaryForward") ||
+              t.isUserEvent("selectLineBoundaryRight"),
           );
 
         if (isEndMove) {
@@ -1688,6 +1775,15 @@ export default class VisibleCursorPlugin extends Plugin {
           plugin.blockWrapState = null;
           plugin.lastUserEvent = "end";
           pendingDownFromWrapPos = null;
+          if (pos > currentLine.from && isSoftWrap(update.view, pos)) {
+            update.view.dispatch({
+              selection: EditorSelection.cursor(pos - 1, -1),
+              scrollIntoView: true,
+              annotations: Transaction.userEvent.of(
+                "visible-cursor.wrap-correction",
+              ),
+            });
+          }
           return;
         }
 
@@ -1868,6 +1964,7 @@ export default class VisibleCursorPlugin extends Plugin {
       Prec.highest(
         keymap.of([
           { key: "Home", run: handleHome },
+          { key: "End", run: handleEnd },
           { key: "ArrowRight", run: handleRight },
           { key: "ArrowLeft", run: handleLeft },
           { key: "ArrowDown", run: handleDown },
