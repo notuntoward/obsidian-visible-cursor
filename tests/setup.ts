@@ -82,4 +82,20 @@ if (typeof global !== 'undefined' && !global.performance) {
 	};
 }
 
+// Ensure getComputedStyle exists
+if (typeof global !== 'undefined' && !(global as any).getComputedStyle) {
+	const mockComputedStyle = () => ({
+		getPropertyValue: () => '#6496ff',
+		fontSize: '16px',
+		fontStyle: 'normal',
+		fontWeight: 'normal',
+		fontFamily: 'inherit',
+		color: '#000000'
+	});
+	(global as any).getComputedStyle = mockComputedStyle;
+	if ((global as any).window) {
+		(global as any).window.getComputedStyle = mockComputedStyle;
+	}
+}
+
 export {};

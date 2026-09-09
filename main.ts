@@ -63,7 +63,11 @@ export function getPreciseCursorCoords(
   const skipNativeSelection =
     forceCoordAPI || isSoftWrap(view, pos) || mainSelectionNonEmpty;
 
-  if (!skipNativeSelection && typeof window !== "undefined") {
+  if (
+    !skipNativeSelection &&
+    typeof window !== "undefined" &&
+    typeof window.getSelection === "function"
+  ) {
     const sel = window.getSelection();
     if (sel && sel.rangeCount > 0) {
       const range = sel.getRangeAt(0);
@@ -519,12 +523,17 @@ export class CustomCursorViewPlugin {
               if (
                 !positionStartsInCollapsedSyntax &&
                 rightCoords &&
-                rightCoords.left > coordsLeft &&
                 !isEndOfVisualLine
               ) {
                 const width = rightCoords.left - coordsLeft;
-                const maxWidth = (view.defaultCharacterWidth || 10) * 1.75;
-                charWidth = width > maxWidth ? (view.defaultCharacterWidth || 10) : width;
+                if (width > 0) {
+                  const maxWidth = (view.defaultCharacterWidth || 10) * 1.75;
+                  charWidth = width > maxWidth ? (view.defaultCharacterWidth || 10) : width;
+                } else {
+                  charWidth = 0;
+                }
+              } else if (positionStartsInCollapsedSyntax) {
+                charWidth = 0;
               } else {
                 charWidth = view.defaultCharacterWidth || 10;
               }
@@ -545,15 +554,18 @@ export class CustomCursorViewPlugin {
           // If Steady Links is working correctly, the cursor never lands on
           // hidden syntax and this fallback never fires.  It exists as a safety
           // net.  Do NOT remove it — see AGENTS.md.
+          let visibleCell: { pos: number; assoc: 1 | -1 } | null = null;
           const minimumBlockWidth = (view.defaultCharacterWidth || 10) * 0.5;
           if (charWidth < minimumBlockWidth) {
             // The measured width was too small to be a real visible character.
             // This typically happens when the cursor lands on hidden wikilink
             // syntax (e.g. `[` or `]`) that Steady Links has collapsed to near
-            // zero width.  Probe forward on the same visual line to find the
-            // first character cell with a real renderable width, and use that
-            // width so the block cursor matches the visible alias character.
-            const visibleCell = findNextRenderableCell(view, visualPos);
+            // zero width (or when HOME/beginning-of-line places the cursor at
+            // column 0 on a line starting with a link). Probe forward on the
+            // same visual line to find the first character cell with a real
+            // renderable width, and use that width and visible character so the
+            // block cursor matches the visible alias character.
+            visibleCell = findNextRenderableCell(view, visualPos);
             let probeWidth = 0;
             if (visibleCell) {
               const cellLeft = view.coordsAtPos(visibleCell.pos, -1);
@@ -562,10 +574,24 @@ export class CustomCursorViewPlugin {
                 probeWidth = cellRight.left - cellLeft.left;
               }
             }
-            if (probeWidth >= minimumBlockWidth) {
+            if (probeWidth >= minimumBlockWidth && visibleCell) {
               charWidth = probeWidth;
+              const line = view.state.doc.lineAt(visibleCell.pos);
+              const offset = visibleCell.pos - line.from;
+              if (offset >= 0 && offset < line.text.length) {
+                const codePoint = line.text.codePointAt(offset);
+                if (codePoint !== undefined) {
+                  char = String.fromCodePoint(codePoint);
+                } else {
+                  char = " ";
+                }
+              } else {
+                char = " ";
+              }
             } else {
               charWidth = view.defaultCharacterWidth || 10;
+              char = " ";
+              visibleCell = null;
             }
             debugMeasure("cursor-measure:min-width-fallback", {
               selectionHead: pos,
@@ -580,11 +606,6 @@ export class CustomCursorViewPlugin {
               defaultCharacterWidth: view.defaultCharacterWidth,
               blockWrapState: plugin.blockWrapState,
             });
-            // Rendering the hidden source character (e.g. `[`) inside the
-            // block cursor produces a garbled glyph overlaid on the actual
-            // visible alias text.  Show a space instead so the block cursor
-            // is a clean colored rectangle and the underlying text shows through.
-            char = " ";
           }
 
           const shouldLogMeasurement =
@@ -642,11 +663,14 @@ export class CustomCursorViewPlugin {
             // domAtPos() works directly from CM6's internal DOM map, independent
             // of scroll position, z-order, or pointer-events.
             let el: Element | null = null;
-            if (domInfo.node) {
+            const targetDomNode =
+              (visibleCell ? view.domAtPos(visibleCell.pos).node : null) ??
+              domInfo.node;
+            if (targetDomNode) {
               el =
-                domInfo.node.nodeType === Node.TEXT_NODE
-                  ? (domInfo.node as Text).parentElement
-                  : (domInfo.node as Element);
+                targetDomNode.nodeType === Node.TEXT_NODE
+                  ? (targetDomNode as Text).parentElement
+                  : (targetDomNode as Element);
             }
             if (el) {
               const computed = getComputedStyle(el);

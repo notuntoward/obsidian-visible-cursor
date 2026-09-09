@@ -20,30 +20,31 @@ When this triggers:
 
 1. It probes forward using `findNextRenderableCell()` to find the actual
    visible character's width and uses that instead of `defaultCharacterWidth`
-2. It replaces `char` with `' '` (space) so the block cursor renders as a
-   clean solid rectangle without a garbled hidden-syntax glyph
+2. It extracts the actual visible character and styling from `visibleCell`
+   (falling back to `' '` only if no visible cell is found) so the block cursor
+   renders the first visible character cleanly without blotting it out with an
+   empty block or rendering a garbled hidden-syntax glyph
 
 ### The real fix (in Steady Links)
 
-The proper fix is in the Steady Links plugin's `cursorCorrector`.  After
-vertical motion, Obsidian normalises the cursor from `textFrom` (visible
-alias start) back to `leading.from` (hidden `[[` syntax).  The Steady Links
-suppression logic must redirect this back to `textFrom`, NOT stay at
-`leading.from`.
+The proper fix for vertical motion is in the Steady Links plugin's
+`cursorCorrector`.  After vertical motion, Obsidian normalises the cursor from
+`textFrom` (visible alias start) back to `leading.from` (hidden `[[` syntax).
+The Steady Links suppression logic redirects this back to `textFrom`.
 
-If Steady Links is working correctly, the cursor never lands on hidden
-syntax, so the min-width fallback in this plugin never fires.  The fallback
-exists as a safety net for the case where Steady Links is not installed or
-has a regression.
+However, on HOME and Emacs `moveToBeginning`, Steady Links intentionally places
+the cursor at `span.leading.from` (column 0) so that line-kill commands
+(`kill-line`, etc.) operate on column 0.  In that case, the cursor sits on
+collapsed syntax at the line start, and this fallback cleanly renders the first
+visible alias character inside the block cursor overlay.
 
 ### What NOT to do
 
 - Do NOT try to fix this by remapping `visualPos` to a different source
   position in the measurement code.  That approach was tried 3 times and
   each time it garbled the rendered character or broke the cursor position.
-- Do NOT remove the min-width fallback or the `char = ' '` replacement.
-  They are the safety net that prevents garbled rendering if Steady Links
-  regresses.
+- Do NOT remove the min-width fallback.  It is the safety net that prevents
+  garbled rendering or blotting out the first visible character.
 - Do NOT add code that detects whether Steady Links is installed.  The
   plugin must work identically with and without Steady Links.
 

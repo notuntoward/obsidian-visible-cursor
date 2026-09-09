@@ -471,4 +471,55 @@ test('ArrowDown from blank line onto line start moves cursor down without wrap-c
 	expect(afterDown.rect).not.toBeNull();
 });
 
+test('block cursor at line-start collapsed link position renders the visible alias character instead of blotting out', async ({ page }) => {
+	const doc = '[[test-notes/Note-01.md|First Link]] with some text';
+	await page.evaluate((d) => {
+		window.__visibleCursorHarness?.setDoc(d, 0);
+	}, doc);
+
+	await page.waitForTimeout(100);
+
+	const result = await page.evaluate(() => {
+		const harness = window.__visibleCursorHarness;
+		if (!harness) throw new Error('Harness unavailable');
+		const view = harness.getView() as import('@codemirror/view').EditorView;
+
+		// Simulate collapsed syntax at line start: positions 0..23 have collapsed width
+		// while the visible alias starts at offset 24 ('First Link')
+		const origCoords = view.coordsAtPos.bind(view);
+		const aliasOffset = harness.getDoc().indexOf('First Link');
+		const aliasCoords = origCoords(aliasOffset, -1);
+		const aliasNextCoords = origCoords(aliasOffset + 1, -1);
+
+		if (aliasCoords && aliasNextCoords) {
+			view.coordsAtPos = ((pos: number, assoc?: 1 | -1) => {
+				if (pos < aliasOffset) {
+					return {
+						top: aliasCoords.top,
+						bottom: aliasCoords.bottom,
+						left: aliasCoords.left,
+						right: aliasCoords.left
+					};
+				}
+				return origCoords(pos, assoc);
+			}) as typeof view.coordsAtPos;
+		}
+
+		harness.setCursor(30);
+		harness.dispatchEmacsMoveToStart(0);
+		(view as any).measure();
+
+		const rect = harness.getCustomCursorRect();
+		const textContent = harness.getCustomCursorText();
+		const defaultWidth = harness.getDefaultCharWidth();
+
+		return { rect, textContent, defaultWidth };
+	});
+
+	expect(result.rect).not.toBeNull();
+	expect(result.rect!.width).toBeGreaterThanOrEqual(result.defaultWidth * 0.5);
+	expect(result.textContent).toBe('F');
+});
+
+
 
