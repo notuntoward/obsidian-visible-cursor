@@ -31,6 +31,8 @@ type Rect = { top: number; bottom: number; left: number; right: number };
 
 function createMockScrollDOM(): HTMLElement {
 	const mockScrollDOM = document.createElement('div');
+	(mockScrollDOM as any).scrollTop = 0;
+	(mockScrollDOM as any).scrollLeft = 0;
 	mockScrollDOM.getBoundingClientRect = () => ({
 		top: 0,
 		left: 0,
@@ -289,5 +291,114 @@ describe('min-width fallback for collapsed link syntax', () => {
 		expect(contentDOM.classList.contains('visible-cursor-hide-caret')).toBe(false);
 		expect(dom.classList.contains('visible-cursor-hide-default')).toBe(false);
 	});
+
+	it('does not adopt shifted top from trailing anchor widget when cursor is on the last character of a link', () => {
+		const docText = '- Indented bullet with [[test-notes/Note-04.md|Indented Link]]';
+		const aliasOffset = docText.indexOf('Indented Link');
+		const lastCharOffset = aliasOffset + 'Indented Link'.length - 1; // 'k'
+		const anchorOffset = aliasOffset + 'Indented Link'.length; // start of ']]'
+
+		const plugin = new VisibleCursorPlugin({} as never, {} as never);
+		plugin.settings = { ...DEFAULT_SETTINGS, customCursorStyle: 'block' };
+		plugin.colorProvider = new ColorProvider();
+
+		const anchorSpan = document.createElement('span');
+		anchorSpan.className = 'le-hidden-syntax-anchor';
+		anchorSpan.setAttribute('aria-hidden', 'true');
+		anchorSpan.setAttribute('data-steady-links-anchor', 'hidden-syntax');
+
+		const coordsMap = new Map<number, Rect>();
+		// Text coordinates: top = 10, bottom = 30
+		coordsMap.set(lastCharOffset, { left: 200, right: 200, top: 10, bottom: 30 });
+		// Position at anchorOffset: right edge of 'k' is at 210, but anchor widget top is shifted down to 14
+		coordsMap.set(anchorOffset, { left: 210, right: 210, top: 14, bottom: 30 });
+		// Inside anchor widget (width is 0 or 1px)
+		coordsMap.set(anchorOffset + 1, { left: 211, right: 211, top: 14, bottom: 30 });
+
+		const mockView = {
+			state: {
+				doc: {
+					length: docText.length,
+					lineAt: () => ({ from: 0, to: docText.length, number: 1, text: docText })
+				},
+				selection: {
+					main: { head: lastCharOffset, anchor: lastCharOffset, assoc: -1 as const, empty: true },
+					ranges: [{ head: lastCharOffset, anchor: lastCharOffset }]
+				}
+			},
+			coordsAtPos: (pos: number) => coordsMap.get(pos) ?? { left: 200, right: 200, top: 10, bottom: 30 },
+			domAtPos: (pos: number) => {
+				if (pos >= anchorOffset) {
+					return { node: anchorSpan, offset: 0 };
+				}
+				return { node: document.createTextNode('k'), offset: 0 };
+			},
+			scrollDOM: createMockScrollDOM(),
+			contentDOM: document.createElement('div'),
+			defaultCharacterWidth: 10,
+			defaultLineHeight: 20,
+			hasFocus: true,
+			composing: false,
+			requestMeasure: vi.fn()
+		};
+
+		const cursorPlugin = new CustomCursorViewPlugin(mockView as never, plugin);
+		const measureReq = (cursorPlugin as any).buildMeasureReq();
+		const result = measureReq.read(mockView);
+
+		expect(result).not.toBeNull();
+		expect(result.char).toBe('k');
+		expect(result.top).toBe(10); // NOT shifted down to 14!
+		expect(result.height).toBe(20);
+	});
+
+	it('normalizes top to match next visible character when leading anchor widget inflates line-box top', () => {
+		const docText = '[[test-notes/Note-01.md|First Link]] with some text';
+		const aliasOffset = docText.indexOf('First Link'); // 'F'
+
+		const plugin = new VisibleCursorPlugin({} as never, {} as never);
+		plugin.settings = { ...DEFAULT_SETTINGS, customCursorStyle: 'block' };
+		plugin.colorProvider = new ColorProvider();
+
+		const coordsMap = new Map<number, Rect>();
+		// Position at 'F': inflated line box top = 6, bottom = 30 (height 24)
+		coordsMap.set(aliasOffset, { left: 100, right: 100, top: 6, bottom: 30 });
+		// Position at 'i' (next character): clean line box top = 10, bottom = 30 (height 20)
+		coordsMap.set(aliasOffset + 1, { left: 110, right: 110, top: 10, bottom: 30 });
+		// Position at 'r' (character after 'i'): width is 10
+		coordsMap.set(aliasOffset + 2, { left: 120, right: 120, top: 10, bottom: 30 });
+
+		const mockView = {
+			state: {
+				doc: {
+					length: docText.length,
+					lineAt: () => ({ from: 0, to: docText.length, number: 1, text: docText })
+				},
+				selection: {
+					main: { head: aliasOffset, anchor: aliasOffset, assoc: -1 as const, empty: true },
+					ranges: [{ head: aliasOffset, anchor: aliasOffset }]
+				}
+			},
+			coordsAtPos: (pos: number) => coordsMap.get(pos) ?? { left: 100, right: 100, top: 10, bottom: 30 },
+			domAtPos: (pos: number) => ({ node: document.createTextNode(docText.slice(pos)), offset: 0 }),
+			scrollDOM: createMockScrollDOM(),
+			contentDOM: document.createElement('div'),
+			defaultCharacterWidth: 10,
+			defaultLineHeight: 20,
+			hasFocus: true,
+			composing: false,
+			requestMeasure: vi.fn()
+		};
+
+		const cursorPlugin = new CustomCursorViewPlugin(mockView as never, plugin);
+		const measureReq = (cursorPlugin as any).buildMeasureReq();
+		const result = measureReq.read(mockView);
+
+		expect(result).not.toBeNull();
+		expect(result.char).toBe('F');
+		expect(result.top).toBe(10); // Normalized from 6 to 10 to match 'i'!
+		expect(result.height).toBe(20);
+	});
 });
+
 

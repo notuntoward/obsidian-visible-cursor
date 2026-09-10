@@ -2,6 +2,14 @@
 // Store classes in a Set for dynamic classList behavior
 const bodyClasses = new Set<string>();
 
+if (typeof global !== 'undefined' && !(global as any).Node) {
+	class Node {
+		static ELEMENT_NODE = 1;
+		static TEXT_NODE = 3;
+	}
+	(global as any).Node = Node;
+}
+
 if (typeof global !== 'undefined' && !global.document) {
 	(global as any).document = {
 		documentElement: {
@@ -52,6 +60,11 @@ if (typeof global !== 'undefined' && !global.document) {
 			return el;
 		},
 		getElementById: () => null,
+		createTextNode: (text: string) => ({
+			nodeType: 3,
+			textContent: text,
+			parentElement: null
+		}),
 		getComputedStyle: () => ({
 			getPropertyValue: () => '#6496ff',
 			fontSize: '16px'

@@ -701,6 +701,68 @@ test('block cursor on the last character of a link does not misalign downwards',
 	expect(Math.abs(result.rect!.height - result.normalHeight!)).toBeLessThan(1.5);
 });
 
+test('block cursor on last character of link followed by trailing text does not misalign downwards', async ({ page }) => {
+	const doc = 'Middle item [[test-notes/Note-02.md|Middle Link]] trailing text';
+	await page.evaluate((d) => {
+		window.__visibleCursorHarness?.setDoc(d, 0);
+	}, doc);
+
+	await page.waitForTimeout(100);
+
+	const result = await page.evaluate(() => {
+		const harness = window.__visibleCursorHarness;
+		if (!harness) throw new Error('Harness unavailable');
+		const view = harness.getView() as import('@codemirror/view').EditorView;
+
+		const origCoords = view.coordsAtPos.bind(view);
+		const linkText = 'Middle Link';
+		const aliasOffset = harness.getDoc().indexOf(linkText);
+		const lastCharOffset = aliasOffset + linkText.length - 1; // 'k'
+		const trailingAnchorOffset = aliasOffset + linkText.length; // start of ']]'
+		const trailingTextOffset = harness.getDoc().indexOf('trailing');
+
+		const normalCoords = origCoords(lastCharOffset, -1);
+		const anchorCoords = origCoords(trailingAnchorOffset, -1);
+		const prevCoords = origCoords(lastCharOffset - 1, -1);
+
+		if (normalCoords && anchorCoords) {
+			// Simulate Steady Links trailing anchor widget at ']]' with vertical-align: -0.2em (downshift)
+			view.coordsAtPos = ((pos: number, assoc?: 1 | -1) => {
+				if (pos >= trailingAnchorOffset && pos < trailingTextOffset) {
+					return {
+						top: normalCoords.top + 4,
+						bottom: normalCoords.bottom,
+						left: anchorCoords.left,
+						right: anchorCoords.left + 1
+					};
+				}
+				return origCoords(pos, assoc);
+			}) as typeof view.coordsAtPos;
+		}
+
+		harness.setCursor(lastCharOffset);
+		(view as any).measure();
+
+		const rect = harness.getCustomCursorRect();
+		const textContent = harness.getCustomCursorText();
+
+		return {
+			rect,
+			textContent,
+			normalTop: normalCoords?.top,
+			prevTop: prevCoords?.top,
+			normalHeight: normalCoords ? normalCoords.bottom - normalCoords.top : null
+		};
+	});
+
+	expect(result.rect).not.toBeNull();
+	expect(result.textContent).toBe('k');
+	expect(Math.abs(result.rect!.top - result.normalTop!)).toBeLessThan(1.5);
+	expect(Math.abs(result.rect!.top - result.prevTop!)).toBeLessThan(1.5);
+	expect(Math.abs(result.rect!.height - result.normalHeight!)).toBeLessThan(1.5);
+});
+
+
 
 
 

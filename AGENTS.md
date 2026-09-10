@@ -147,6 +147,43 @@ then advances cleanly to the first character of the continuation line (`P`).
 - Do NOT remove the `isEndMove` soft-wrap check in `navCorrection`.
 - Do NOT overwrite `charWidth` with `defaultCharacterWidth` when `isEndOfVisualLine` is true.
 
+## Critical: Line-box baseline alignment at link boundaries (preventing downward shift on trailing link character)
+
+When Steady Links collapses wikilink syntax, trailing syntax (e.g. `]]`) is replaced with an anchor widget (`span.le-hidden-syntax-anchor`) styled with:
+```css
+display: inline-block;
+width: 1px;
+height: 1em;
+line-height: 1;
+vertical-align: -0.2em;
+```
+Because the anchor widget has `vertical-align: -0.2em` and `height: 1em`:
+- Its `bottom` aligns with the line bottom.
+- Its `top` is shifted **downward** by ~3.5px relative to the font line box.
+- Measuring `view.coordsAtPos(vpos1, 1)` where `vpos1 = visualPos + 1` at the **last** character of a link (e.g. `k` in `[[...|Indented Link]]`) measures the rect of this **anchor widget**, NOT a visible character!
+
+### The fix (in this plugin)
+
+In `main.ts`, the line-box top correction:
+```ts
+if (rightCoords && !isEndOfVisualLine && vpos1 !== null) { ... }
+```
+normalizes line boxes when adjacent inline-block widgets inflate the line-box top at the start of a link (aligning `F` to match `i` in `First Link`).
+
+**Mandatory Invariant**:
+This correction MUST ONLY use `rightCoords.top` when `vpos1` is a **real, renderable text character** on the visual line (`isRightCellRenderable`):
+1. `vpos1 < line.to` (there is an actual next character position on the line).
+2. `!isZeroWidthOrCollapsedNode(resolveDomNodeAtPos(view, vpos1))` (the next position is NOT an anchor widget or collapsed syntax with `data-steady-links-anchor`, `le-hidden-syntax-anchor`, `aria-hidden="true"`, etc.).
+3. `nextCellWidth >= minimumBlockWidth` (the cell at `vpos1` has a real character width, not 0px or 1px).
+
+If `isRightCellRenderable` is false (as is always the case at the trailing edge of a link where `vpos1` is the trailing anchor widget), `coordsTop` remains `rawCoords.top`. This prevents the block cursor on the last character of a link from adopting the anchor widget's downward-shifted top and shrinking/shifting downwards.
+
+### What NOT to do
+
+- Do NOT remove `isRightCellRenderable` or its collapsed/width checks.
+- Do NOT use `Math.abs(coordsTop - rightCoords.top) > 1` without first verifying that `rightCoords` represents a visible character cell with `width >= minimumBlockWidth`.
+- Do NOT assume `vpos1` is a text character when the cursor is inside a link; at the last character of a link, `vpos1` is always the trailing anchor widget.
+
 ## Testing infrastructure
 
 - **Vitest** (`npm run test:run`): 145+ unit tests for settings, color,
