@@ -219,7 +219,10 @@ export class CustomCursorViewPlugin {
               : null;
           const isCollapsedSyntax =
             element.hasAttribute("data-collapsed-syntax") ||
+            element.hasAttribute("data-steady-links-anchor") ||
             element.classList.contains("steady-links-collapsed") ||
+            element.classList.contains("le-hidden-syntax-anchor") ||
+            element.classList.contains("le-empty-link-brackets") ||
             element.classList.contains("cm-widgetBuffer");
           if (
             isCollapsedSyntax ||
@@ -237,6 +240,28 @@ export class CustomCursorViewPlugin {
       }
 
       return false;
+    };
+
+    const resolveDomNodeAtPos = (
+      view: EditorView,
+      pos: number,
+    ): Node | null => {
+      try {
+        const info = view.domAtPos(pos);
+        if (!info || !info.node) return null;
+        if (info.node.nodeType === Node.ELEMENT_NODE) {
+          const el = info.node as Element;
+          if (info.offset < el.childNodes.length) {
+            return el.childNodes[info.offset];
+          }
+          if (el.childNodes.length > 0) {
+            return el.childNodes[el.childNodes.length - 1];
+          }
+        }
+        return info.node;
+      } catch {
+        return null;
+      }
     };
 
     const describeDomChain = (
@@ -474,10 +499,12 @@ export class CustomCursorViewPlugin {
         if (style === "block") {
           const doc = view.state.doc;
           const domInfo = view.domAtPos(visualPos);
-          const domNode = domInfo.node ?? null;
+          const domNode =
+            resolveDomNodeAtPos(view, visualPos) ?? domInfo.node ?? null;
 
           let isEndOfVisualLine = false;
           let positionStartsInCollapsedSyntax = false;
+          let vpos1: number | null = null;
           let rightCoords: { left: number; right: number; top: number; bottom: number } | null = null;
           let measuredWidthFromCoords: number | null = null;
 
@@ -536,7 +563,7 @@ export class CustomCursorViewPlugin {
                 }
               }
 
-              const vpos1 = Math.min(
+              vpos1 = Math.min(
                 doc.length,
                 visualPos + Math.max(char.length, 1),
               );
@@ -670,20 +697,47 @@ export class CustomCursorViewPlugin {
           }
 
           // Fix for misaligned line boxes caused by adjacent inline-block
-          // widgets (e.g. Steady Links hidden-syntax anchors).  The
+          // widgets (e.g. Steady Links hidden-syntax anchors). The
           // anchor widget's vertical-align shifts the effective baseline
-          // of the line box, so coordsAtPos() at the first or last
-          // visible link character can return a rect whose top differs
-          // from that of plain text on the same visual line — shifted
-          // either up (text-bottom anchor) or down (-0.2em anchor).
+          // of the line box, so coordsAtPos() at the first visible link
+          // character can return a rect whose top differs from that of
+          // plain text on the same visual line — shifted either up
+          // (text-bottom anchor) or down (-0.2em anchor).
           // In both cases the bottom edge stays flush with surrounding
-          // text.  When the next character shares the same bottom but
+          // text. When the next character shares the same bottom but
           // has a top that differs by more than 1px, use the next
           // character's top so the overlay glyph aligns with the text.
-          if (rightCoords && !isEndOfVisualLine) {
-            const sameBottom = Math.abs(coordsBottom - rightCoords.bottom) < 2;
-            if (sameBottom && Math.abs(coordsTop - rightCoords.top) > 1) {
-              coordsTop = rightCoords.top;
+          //
+          // CRITICAL: This correction must ONLY use rightCoords when
+          // vpos1 is a real, renderable text character on the same
+          // visual line. If vpos1 lands on an anchor widget or collapsed
+          // syntax (such as the trailing `]]` when the cursor is on the
+          // last character of a link), rightCoords is the anchor widget's
+          // own rect (which is shifted down by -0.2em). Using an anchor
+          // widget's top would misalign the visible text character
+          // downwards!
+          if (rightCoords && !isEndOfVisualLine && vpos1 !== null) {
+            const line = doc.lineAt(visualPos);
+            if (vpos1 < line.to) {
+              const rightNode = resolveDomNodeAtPos(view, vpos1);
+              const isRightNodeCollapsed = isZeroWidthOrCollapsedNode(rightNode);
+              const nextCellCoords = view.coordsAtPos(
+                Math.min(line.to, vpos1 + 1),
+                1,
+              );
+              const nextCellWidth = nextCellCoords
+                ? nextCellCoords.left - rightCoords.left
+                : 0;
+              const isRightCellRenderable =
+                !isRightNodeCollapsed && nextCellWidth >= minimumBlockWidth;
+
+              if (isRightCellRenderable) {
+                const sameBottom =
+                  Math.abs(coordsBottom - rightCoords.bottom) < 2;
+                if (sameBottom && Math.abs(coordsTop - rightCoords.top) > 1) {
+                  coordsTop = rightCoords.top;
+                }
+              }
             }
           }
 

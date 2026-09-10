@@ -640,5 +640,67 @@ test('pressing End on soft-wrapped line places cursor on trailing character not 
 	expect(result.rect!.left).toBeCloseTo(result.cHeadBefore!.left, 0);
 });
 
+test('block cursor on the last character of a link does not misalign downwards', async ({ page }) => {
+	const doc = '- Indented bullet with [[test-notes/Note-04.md|Indented Link]]';
+	await page.evaluate((d) => {
+		window.__visibleCursorHarness?.setDoc(d, 0);
+	}, doc);
+
+	await page.waitForTimeout(100);
+
+	const result = await page.evaluate(() => {
+		const harness = window.__visibleCursorHarness;
+		if (!harness) throw new Error('Harness unavailable');
+		const view = harness.getView() as import('@codemirror/view').EditorView;
+
+		const origCoords = view.coordsAtPos.bind(view);
+		const linkText = 'Indented Link';
+		const aliasOffset = harness.getDoc().indexOf(linkText);
+		const lastCharOffset = aliasOffset + linkText.length - 1; // 'k'
+		const trailingAnchorOffset = aliasOffset + linkText.length; // start of ']]'
+
+		const normalCoords = origCoords(lastCharOffset, -1);
+		const anchorCoords = origCoords(trailingAnchorOffset, -1);
+		const prevCoords = origCoords(lastCharOffset - 1, -1);
+
+		if (normalCoords && anchorCoords) {
+			// Simulate Steady Links trailing anchor widget at ']]' with vertical-align: -0.2em (downshift)
+			view.coordsAtPos = ((pos: number, assoc?: 1 | -1) => {
+				if (pos >= trailingAnchorOffset) {
+					return {
+						top: normalCoords.top + 4, // shifted downwards by 4px
+						bottom: normalCoords.bottom,
+						left: anchorCoords.left,
+						right: anchorCoords.left + 1
+					};
+				}
+				return origCoords(pos, assoc);
+			}) as typeof view.coordsAtPos;
+		}
+
+		harness.setCursor(lastCharOffset);
+		(view as any).measure();
+
+		const rect = harness.getCustomCursorRect();
+		const textContent = harness.getCustomCursorText();
+
+		return {
+			rect,
+			textContent,
+			normalTop: normalCoords?.top,
+			prevTop: prevCoords?.top,
+			normalHeight: normalCoords ? normalCoords.bottom - normalCoords.top : null
+		};
+	});
+
+	expect(result.rect).not.toBeNull();
+	expect(result.textContent).toBe('k');
+	// Block cursor top must match normal text top, not shifted down to anchor widget's top (+4px)
+	expect(Math.abs(result.rect!.top - result.normalTop!)).toBeLessThan(1.5);
+	expect(Math.abs(result.rect!.top - result.prevTop!)).toBeLessThan(1.5);
+	expect(Math.abs(result.rect!.height - result.normalHeight!)).toBeLessThan(1.5);
+});
+
+
 
 
