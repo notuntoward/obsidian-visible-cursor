@@ -1,5 +1,41 @@
 # Agent Instructions for obsidian-visible-cursor
 
+## Critical: Do not remove the "select.steadyLinks" / "select.programmatic" ignore in navCorrection
+
+`navCorrection` (in `createBlockCursorNavFilter()`) early-returns when any
+transaction in the update `isUserEvent("select.pointer")`,
+`isUserEvent("select.steadyLinks")`, or `isUserEvent("select.programmatic")`.
+This is the ONLY thing that stops this plugin's block-cursor wrap-correction
+logic from re-dispatching its own corrective selection change on top of a
+cursor-repositioning dispatch made BY the Steady Links plugin
+(`obsidian-steady-links`, `cursorCorrector` in `src/linkSyntaxHider.ts`).
+
+Steady Links' `cursorCorrector` explicitly tags every one of its own purely-
+corrective dispatches (the ones that snap the cursor onto/off of hidden link
+syntax) with `userEvent: "select.steadyLinks"` specifically so this plugin
+can recognize and ignore them. Without this check, the two plugins fight over
+the cursor position — most visibly with the block cursor style, since this is
+the only cursor style whose `navCorrection` logic dispatches selection
+changes on its own (bar/thinbar never do). This caused a real, very hard to
+reproduce bug: Emacs kill-line on a line-start wikilink at end of document
+leaving a stray one-character alias like `[[dest|S]]` instead of deleting the
+whole link, because the real CM6 selection had drifted one character into the
+alias by the time kill-line read it.
+
+### What NOT to do
+
+- Do NOT remove the `select.steadyLinks` (or `select.programmatic`) check
+  from `navCorrection`'s early-return, and do NOT assume it is dead just
+  because this plugin never emits either tag itself — they exist purely to
+  recognize dispatches from OTHER plugins (Steady Links, and potentially
+  others that adopt the same `select.programmatic` convention).
+- Do NOT remove the `guards test "ignores external programmatic selection
+  transactions like select.steadyLinks"` in `tests/homeNavigation.test.ts`.
+- If Steady Links' own emission of `select.steadyLinks` ever changes name,
+  update this check to match — do not silently let the two plugins drift out
+  of sync (verify with `git log -S"select.steadyLinks"` in the Steady Links
+  repo that the emitting side still uses the exact same string).
+
 ## Critical: Block cursor rendering on hidden link syntax positions
 
 When the Steady Links plugin is active with "keep links steady" enabled,
