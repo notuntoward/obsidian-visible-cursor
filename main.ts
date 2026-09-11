@@ -12,6 +12,20 @@ import { FlashScheduler, type FlashState } from "./src/services/flashScheduler";
 import { FlashRenderer } from "./src/services/flashRenderer";
 
 /**
+ * How recently a keyboard navigation key must have been pressed for
+ * `plugin.lastKeyDownTime` to still count as "the user is actively
+ * navigating with the keyboard right now".
+ *
+ * Used both to decide whether a cursor-position jump during rendering is a
+ * genuine keyboard-driven move (`isKeyboardBypass` in `buildMeasureReq`) and
+ * to suppress a scroll-triggered cursor flash immediately after a keyboard
+ * move (`main.ts`'s scroll handler). Kept as a single named constant so the
+ * two independent uses of this timing window can't silently drift apart if
+ * one is ever tuned without the other.
+ */
+const RECENT_KEYDOWN_WINDOW_MS = 250;
+
+/**
  * Helper to check if a position is a soft-wrap boundary.
  */
 export function isSoftWrap(view: EditorView, pos: number): boolean {
@@ -30,6 +44,44 @@ export function isSoftWrap(view: EditorView, pos: number): boolean {
   } catch (e) {
     return false;
   }
+}
+
+/**
+ * Find the first renderable (non-collapsed, non-zero-width) character cell
+ * starting at or after `fromPos + 1`, without crossing onto a different
+ * visual line.
+ *
+ * Used by the block-cursor min-width fallback (to find the actual visible
+ * character to render when landing on collapsed/hidden syntax) and by the
+ * block-cursor nav filter (to find where a rightward move should actually
+ * land when the immediately-following cell is too narrow to be a real
+ * character). This is the single shared implementation — it used to be
+ * defined independently in two places with slightly different (but
+ * equivalent) coordinate math, which is exactly the kind of duplication
+ * that lets one copy's bugfix silently miss the other.
+ */
+export function findNextRenderableCell(
+  view: EditorView,
+  fromPos: number,
+): { pos: number; assoc: 1 | -1 } | null {
+  const doc = view.state.doc;
+  const line = doc.lineAt(fromPos);
+  const baseline = view.coordsAtPos(fromPos, -1) ?? view.coordsAtPos(fromPos, 1);
+  if (!baseline) return null;
+
+  for (let probe = fromPos + 1; probe <= line.to; probe++) {
+    const leftEdge = view.coordsAtPos(probe - 1, -1);
+    const rightEdge = view.coordsAtPos(probe, -1);
+    if (!leftEdge || !rightEdge) continue;
+    if (Math.abs(leftEdge.top - baseline.top) > view.defaultLineHeight * 0.3) break;
+
+    const width = rightEdge.left - leftEdge.left;
+    if (width >= (view.defaultCharacterWidth || 10) * 0.5) {
+      return { pos: probe - 1, assoc: -1 };
+    }
+  }
+
+  return null;
 }
 
 /**
@@ -303,37 +355,6 @@ export class CustomCursorViewPlugin {
       return chain;
     };
 
-    const findNextRenderableCell = (
-      view: EditorView,
-      fromPos: number,
-    ): { pos: number; assoc: 1 | -1 } | null => {
-      const doc = view.state.doc;
-      const line = doc.lineAt(fromPos);
-      const baseline =
-        view.coordsAtPos(fromPos, -1) ?? view.coordsAtPos(fromPos, 1);
-      if (!baseline) return null;
-
-      for (let probe = fromPos + 1; probe <= line.to; probe++) {
-        const probeCoords = view.coordsAtPos(probe, -1);
-        if (!probeCoords) continue;
-        if (
-          Math.abs(probeCoords.top - baseline.top) >
-          view.defaultLineHeight * 0.3
-        )
-          break;
-
-        const currentCoords = view.coordsAtPos(probe - 1, -1);
-        if (!currentCoords) continue;
-
-        const width = probeCoords.left - currentCoords.left;
-        if (width >= (view.defaultCharacterWidth || 10) * 0.5) {
-          return { pos: probe - 1, assoc: -1 };
-        }
-      }
-
-      return null;
-    };
-
     return {
       key: this,
       read: (
@@ -430,7 +451,8 @@ export class CustomCursorViewPlugin {
           key === "Home" ||
           key === "End" ||
           key === "Enter";
-        const isKeyboardBypass = timeSinceKeyDown < 250 && !isAllowedJumpKey;
+        const isKeyboardBypass =
+          timeSinceKeyDown < RECENT_KEYDOWN_WINDOW_MS && !isAllowedJumpKey;
 
         if (this.lastCursorDocPos === null) {
           this.lastCursorViewportTop = rawCoords.top;
@@ -516,16 +538,7 @@ export class CustomCursorViewPlugin {
               charWidth = view.defaultCharacterWidth || 10;
             } else {
               if (assocForCoords === -1) {
-                const coordsBefore = view.coordsAtPos(visualPos, -1);
-                const coordsAfter = view.coordsAtPos(visualPos, 1);
-                const wrapThreshold = view.defaultLineHeight * 0.3;
-                if (
-                  coordsBefore &&
-                  coordsAfter &&
-                  Math.abs(coordsBefore.top - coordsAfter.top) > wrapThreshold
-                ) {
-                  isEndOfVisualLine = true;
-                }
+                isEndOfVisualLine = isSoftWrap(view, visualPos);
               }
 
               if (isEndOfVisualLine && visualPos > line.from) {
@@ -900,7 +913,14 @@ export default class VisibleCursorPlugin extends Plugin {
   lastKeyDownTime: number = 0;
   repeatStartDocPos: number | null = null;
   repeatEndTimer: number | null = null;
-  debugCursorDiagnostics: boolean = true;
+  // Diagnostic-only console logging (guards the [visible-cursor] logs in
+  // buildMeasureReq/createBlockCursorNavFilter). Must default to false —
+  // this fires on nearly every cursor move/measure and would otherwise spam
+  // every user's DevTools console by default. Tests and the Playwright
+  // harness already assume this default and explicitly set it to false only
+  // where they need the pre-existing (non-default) behavior to be spelled
+  // out; do not flip this back to true.
+  debugCursorDiagnostics: boolean = false;
 
   private lastViewChange: number = 0;
   private flashTimeout: number | null = null;
@@ -1094,7 +1114,7 @@ export default class VisibleCursorPlugin extends Plugin {
         const debounceTime =
           plugin.flashScheduler.getScrollDebounceTime(scrollDelta);
         plugin.scrollDebounceTimer = window.setTimeout(() => {
-          if (Date.now() - plugin.lastKeyDownTime < 250) {
+          if (Date.now() - plugin.lastKeyDownTime < RECENT_KEYDOWN_WINDOW_MS) {
             plugin.scrollDebounceTimer = null;
             return;
           }
@@ -1293,35 +1313,6 @@ export default class VisibleCursorPlugin extends Plugin {
 
       // No earlier wrap: the visual line starts at the logical-line start
       return { pos: line.from, isSoftWrap: false };
-    };
-
-    const findNextRenderableCell = (
-      view: EditorView,
-      fromPos: number,
-    ): { pos: number; assoc: 1 | -1 } | null => {
-      const doc = view.state.doc;
-      const line = doc.lineAt(fromPos);
-      const baseline =
-        view.coordsAtPos(fromPos, -1) ?? view.coordsAtPos(fromPos, 1);
-      if (!baseline) return null;
-
-      for (let probe = fromPos + 1; probe <= line.to; probe++) {
-        const leftEdge = view.coordsAtPos(probe - 1, -1);
-        const rightEdge = view.coordsAtPos(probe, -1);
-        if (!leftEdge || !rightEdge) continue;
-        if (
-          Math.abs(leftEdge.top - baseline.top) >
-          view.defaultLineHeight * 0.3
-        )
-          break;
-
-        const width = rightEdge.left - leftEdge.left;
-        if (width >= (view.defaultCharacterWidth || 10) * 0.5) {
-          return { pos: probe - 1, assoc: -1 };
-        }
-      }
-
-      return null;
     };
 
     const handleRight = (view: EditorView): boolean => {
