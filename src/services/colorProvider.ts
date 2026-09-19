@@ -60,11 +60,11 @@ export class ColorProvider {
 
     // For color-mix, var(), or other CSS functions, use a temporary element
     try {
-      const temp = document.createElement('div');
+      const temp = activeDocument.createElement('div');
       temp.style.cssText = `color: ${color}; display: none;`;
-      document.body.appendChild(temp);
+      activeDocument.body.appendChild(temp);
       const computed = getComputedStyle(temp).color;
-      document.body.removeChild(temp);
+      activeDocument.body.removeChild(temp);
 
       // Parse the computed rgb() or rgba() value
       const matches = computed.match(/\d+/g);
@@ -93,7 +93,7 @@ export class ColorProvider {
    */
   getContrastColor(cursorBackgroundColor: string, originalTextColor?: string): string {
     if (this.themeColorsCache.bg === null) {
-      const computedStyle = getComputedStyle(document.body);
+      const computedStyle = getComputedStyle(activeDocument.body);
       this.themeColorsCache.bg = computedStyle.getPropertyValue('--background-primary').trim() || '#ffffff';
       this.themeColorsCache.text = computedStyle.getPropertyValue('--text-normal').trim() || '#000000';
       this.themeColorsCache.textOnAccent = computedStyle.getPropertyValue('--text-on-accent').trim();
@@ -158,7 +158,7 @@ export class ColorProvider {
    * Check if current theme is dark
    */
   isDarkTheme(): boolean {
-    return document.body.classList.contains('theme-dark');
+    return activeDocument.body.classList.contains('theme-dark');
   }
 
   /**
@@ -166,7 +166,7 @@ export class ColorProvider {
    */
   private getThemeAccentColor(): string {
     if (this.themeColorsCache.accent === null) {
-      const style = getComputedStyle(document.body);
+      const style = getComputedStyle(activeDocument.body);
       this.themeColorsCache.accent = style.getPropertyValue('--interactive-accent').trim();
     }
     return this.themeColorsCache.accent;

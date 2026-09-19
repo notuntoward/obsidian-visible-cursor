@@ -50,7 +50,9 @@ export default [
       'obsidianmd/prefer-window-timers': 'error',
       'obsidianmd/regex-lookbehind': 'error',
       'obsidianmd/validate-license': 'error',
-      'obsidianmd/validate-manifest': 'error'
+      'obsidianmd/validate-manifest': 'error',
+      'obsidianmd/prefer-active-doc': 'error',
+      'obsidianmd/vault/iterate': 'error'
     }
   }
 ];

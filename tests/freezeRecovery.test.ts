@@ -278,4 +278,40 @@ describe('Visible Cursor Freeze Recovery & Watchdog', () => {
 		// The position must be safely clamped/updated
 		expect((layer as any).lastCursorDocPos).toBeLessThanOrEqual(50);
 	});
+
+	it('uses view.dom.ownerDocument for popout window compatibility', () => {
+		const mockPopoutDoc = {
+			createElement: vi.fn((tag: string) => {
+				const el: any = {
+					tagName: tag.toUpperCase(),
+					style: {},
+					setAttribute: vi.fn(),
+					appendChild: vi.fn(),
+				};
+				return el;
+			}),
+		};
+
+		const popoutView = {
+			dom: {
+				ownerDocument: mockPopoutDoc,
+				classList: { add: vi.fn() },
+			},
+			contentDOM: {
+				classList: { add: vi.fn() },
+			},
+			scrollDOM: {
+				appendChild: vi.fn(),
+			},
+			requestMeasure: vi.fn(),
+			state: {
+				selection: { main: { head: 0, empty: true } },
+				doc: { length: 10 },
+			},
+		} as any;
+
+		const layer = new CustomCursorViewPlugin(popoutView, plugin);
+		expect(mockPopoutDoc.createElement).toHaveBeenCalledWith('div');
+		expect((layer as any).cursorLayer).toBeDefined();
+	});
 });

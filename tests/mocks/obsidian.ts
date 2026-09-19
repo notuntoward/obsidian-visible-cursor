@@ -120,3 +120,6 @@ export const Platform = {
 	isMobile: false,
 	isDesktop: true,
 };
+
+export const activeDocument = typeof document !== "undefined" ? document : null;
+export const activeWindow = typeof window !== "undefined" ? window : null;

@@ -119,3 +119,17 @@ if (typeof global !== 'undefined' && !(global as any).getComputedStyle) {
 }
 
 export {};
+
+// Obsidian activeDocument and activeWindow polyfill for tests
+if (typeof (globalThis as any).activeDocument === 'undefined') {
+	Object.defineProperty(globalThis, 'activeDocument', {
+		get: () => (globalThis as any).document,
+		configurable: true,
+	});
+}
+if (typeof (globalThis as any).activeWindow === 'undefined') {
+	Object.defineProperty(globalThis, 'activeWindow', {
+		get: () => (globalThis as any).window,
+		configurable: true,
+	});
+}

@@ -203,7 +203,7 @@ export class CustomCursorViewPlugin {
     this.view = view;
     this.plugin = plugin;
 
-    this.cursorLayer = document.createElement("div");
+    this.cursorLayer = (view.dom?.ownerDocument || activeDocument).createElement("div");
     this.cursorLayer.className = "visible-cursor-custom-layer";
     this.cursorLayer.setAttribute("aria-hidden", "true");
     this.cursorLayer.style.cssText =
@@ -865,7 +865,7 @@ export class CustomCursorViewPlugin {
         this.view.dom?.classList.add("visible-cursor-hide-default");
 
         if (!this.cursorEl) {
-          this.cursorEl = document.createElement("div");
+          this.cursorEl = (this.cursorLayer.ownerDocument || activeDocument).createElement("div");
           this.cursorEl.className = "visible-cursor-element";
           cursorLayer.appendChild(this.cursorEl);
         }
@@ -2451,7 +2451,7 @@ export default class VisibleCursorPlugin extends Plugin {
     };
     const size = { width: editorRect.width, height: lineHeight };
     const positionMode = scrollDOM ? "absolute" : "fixed";
-    const parent = scrollDOM || document.body;
+    const parent = scrollDOM || editorView.dom?.ownerDocument?.body || activeDocument.body;
 
     const cssText = this.flashRenderer.buildLeftGradientCSS(
       position,
@@ -2505,7 +2505,7 @@ export default class VisibleCursorPlugin extends Plugin {
     };
     const size = { width: editorRect.width, height: lineHeight };
     const positionMode = scrollDOM ? "absolute" : "fixed";
-    const parent = scrollDOM || document.body;
+    const parent = scrollDOM || editorView.dom?.ownerDocument?.body || activeDocument.body;
 
     const cssText = this.flashRenderer.buildRightGradientCSS(
       position,
@@ -2560,7 +2560,7 @@ export default class VisibleCursorPlugin extends Plugin {
     };
     const size = { width: editorRect.width, height: lineHeight };
     const positionMode = scrollDOM ? "absolute" : "fixed";
-    const parent = scrollDOM || document.body;
+    const parent = scrollDOM || editorView.dom?.ownerDocument?.body || activeDocument.body;
 
     const cssText = this.flashRenderer.buildCenteredGradientCSS(
       position,

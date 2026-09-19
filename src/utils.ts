@@ -103,7 +103,7 @@ export function getContrastRatio(color1: string, color2: string): number {
 export function isEditorTextClick(target: EventTarget | null): boolean {
 	if (!target) return false;
 	let curr: any = target;
-	while (curr && curr !== document) {
+	while (curr && curr !== activeDocument && curr !== curr.ownerDocument) {
 		const cls = curr.className;
 		const classStr = typeof cls === 'string' ? cls : (cls?.baseVal ?? '');
 		if (

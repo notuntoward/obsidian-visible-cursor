@@ -18,7 +18,7 @@ export class FlashRenderer {
     duration: number,
     parentElement?: HTMLElement
   ): void {
-    const parent = parentElement || document.body;
+    const parent = parentElement || activeDocument.body;
 
     // Clean up any existing flash overlay elements to prevent overlapping animation blips
     if (parent && typeof parent.querySelectorAll === 'function') {
@@ -26,7 +26,7 @@ export class FlashRenderer {
       existing.forEach((el) => el.remove());
     }
 
-    const element = document.createElement('div');
+    const element = (parent.ownerDocument || activeDocument).createElement('div');
     element.className = 'obsidian-flash-line';
     element.style.cssText = cssText;
 
