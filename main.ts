@@ -1,4 +1,4 @@
-import { Plugin, MarkdownView, WorkspaceLeaf } from "obsidian";
+import { Plugin, MarkdownView, WorkspaceLeaf, Notice, Platform } from "obsidian";
 import { EditorView, ViewPlugin, ViewUpdate, keymap } from "@codemirror/view";
 import { EditorSelection, Transaction, Prec, Extension } from "@codemirror/state";
 import {
@@ -65,6 +65,7 @@ export function findNextRenderableCell(
   fromPos: number,
 ): { pos: number; assoc: 1 | -1 } | null {
   const doc = view.state.doc;
+  if (fromPos < 0 || fromPos > doc.length) return null;
   const line = doc.lineAt(fromPos);
   const baseline = view.coordsAtPos(fromPos, -1) ?? view.coordsAtPos(fromPos, 1);
   if (!baseline) return null;
@@ -96,6 +97,8 @@ export function getPreciseCursorCoords(
   assoc: number = -1,
   forceCoordAPI: boolean = false,
 ): { top: number; bottom: number; left: number; right: number } | null {
+  const docLen = view.state?.doc?.length ?? 0;
+  pos = Math.max(0, Math.min(docLen, pos));
   const defaultHeight = view.defaultLineHeight || 20;
   const maxLineHeight = defaultHeight * 2.5;
 
@@ -212,6 +215,14 @@ export class CustomCursorViewPlugin {
 
   update(update: ViewUpdate) {
     this.docChangedInUpdate = update.docChanged;
+
+    if (update.docChanged && this.lastCursorDocPos !== null) {
+      try {
+        this.lastCursorDocPos = update.changes.mapPos(this.lastCursorDocPos);
+      } catch {
+        this.lastCursorDocPos = null;
+      }
+    }
 
     if (
       update.docChanged ||
@@ -372,6 +383,7 @@ export class CustomCursorViewPlugin {
         fontSize: string;
         fontFamily: string;
       } | null => {
+        try {
         const mode = plugin.settings.customCursorMode;
         if (mode === "off") return null;
         if (mode === "flash" && !plugin.flashActive) return null;
@@ -380,7 +392,8 @@ export class CustomCursorViewPlugin {
         if (view.composing) return null;
 
         const sel = view.state.selection.main;
-        const pos = sel.head;
+        const docLen = view.state.doc.length;
+        const pos = Math.max(0, Math.min(docLen, sel.head));
         const style = plugin.settings.customCursorStyle;
 
         // For the block cursor, createBlockCursorNavFilter() tracks state via
@@ -454,42 +467,46 @@ export class CustomCursorViewPlugin {
         const isKeyboardBypass =
           timeSinceKeyDown < RECENT_KEYDOWN_WINDOW_MS && !isAllowedJumpKey;
 
-        if (this.lastCursorDocPos === null) {
+        if (this.lastCursorDocPos === null || this.lastCursorDocPos < 0 || this.lastCursorDocPos > docLen) {
           this.lastCursorViewportTop = rawCoords.top;
           this.lastCursorViewportLeft = rawCoords.left;
           this.lastCursorDocPos = visualPos;
         } else if (view.hasFocus && !this.docChangedInUpdate) {
-          const line1 = view.state.doc.lineAt(this.lastCursorDocPos);
-          const line2 = view.state.doc.lineAt(visualPos);
-          const lineDiff = Math.abs(line2.number - line1.number);
+          try {
+            const line1 = view.state.doc.lineAt(this.lastCursorDocPos);
+            const line2 = view.state.doc.lineAt(visualPos);
+            const lineDiff = Math.abs(line2.number - line1.number);
 
-          if (!isKeyboardBypass && lineDiff > 1 && this.lastCursorDocPos !== visualPos) {
-            const currentTop = rawCoords.top;
-            const currentLeft = rawCoords.left;
+            if (!isKeyboardBypass && lineDiff > 1 && this.lastCursorDocPos !== visualPos) {
+              const currentTop = rawCoords.top;
+              const currentLeft = rawCoords.left;
 
-            if (this.lastCursorViewportTop !== null && this.lastCursorViewportLeft !== null) {
-              const dy = Math.abs(currentTop - this.lastCursorViewportTop);
-              const dx = Math.abs(currentLeft - this.lastCursorViewportLeft);
-              const thresholdY = view.defaultLineHeight * 1.5;
-              const thresholdX = (view.defaultCharacterWidth || 10) * 5;
+              if (this.lastCursorViewportTop !== null && this.lastCursorViewportLeft !== null) {
+                const dy = Math.abs(currentTop - this.lastCursorViewportTop);
+                const dx = Math.abs(currentLeft - this.lastCursorViewportLeft);
+                const thresholdY = view.defaultLineHeight * 1.5;
+                const thresholdX = (view.defaultCharacterWidth || 10) * 5;
 
-              if (dy > thresholdY || dx > thresholdX) {
+                if (dy > thresholdY || dx > thresholdX) {
+                  if (typeof this.plugin.scheduleFlash === "function") {
+                    this.plugin.scheduleFlash("jump", false);
+                  }
+                }
+              } else {
                 if (typeof this.plugin.scheduleFlash === "function") {
                   this.plugin.scheduleFlash("jump", false);
                 }
               }
-            } else {
-              if (typeof this.plugin.scheduleFlash === "function") {
-                this.plugin.scheduleFlash("jump", false);
-              }
-            }
 
-            this.lastCursorViewportTop = currentTop;
-            this.lastCursorViewportLeft = currentLeft;
-            this.lastCursorDocPos = visualPos;
-          } else {
-            this.lastCursorViewportTop = rawCoords.top;
-            this.lastCursorViewportLeft = rawCoords.left;
+              this.lastCursorViewportTop = currentTop;
+              this.lastCursorViewportLeft = currentLeft;
+              this.lastCursorDocPos = visualPos;
+            } else {
+              this.lastCursorViewportTop = rawCoords.top;
+              this.lastCursorViewportLeft = rawCoords.left;
+              this.lastCursorDocPos = visualPos;
+            }
+          } catch {
             this.lastCursorDocPos = visualPos;
           }
         } else {
@@ -813,6 +830,11 @@ export class CustomCursorViewPlugin {
           fontSize,
           fontFamily,
         };
+        } catch (err) {
+          console.error("CAUGHT IN READ:", err);
+          this.lastCursorDocPos = null;
+          return null;
+        }
       },
       write: (
         measure: {
@@ -829,6 +851,7 @@ export class CustomCursorViewPlugin {
           fontFamily: string;
         } | null,
       ) => {
+        try {
         if (!measure) {
           cursorLayer.style.display = "none";
           this.view.contentDOM?.classList.remove("visible-cursor-hide-caret");
@@ -895,6 +918,11 @@ export class CustomCursorViewPlugin {
           el.style.lineHeight = measure.height + "px";
           el.style.setProperty("tab-size", "inherit");
         }
+        } catch (err) {
+          if (plugin.debugCursorDiagnostics) {
+            console.error("[visible-cursor] Error in buildMeasureReq.write:", err);
+          }
+        }
       },
     };
   }
@@ -907,7 +935,132 @@ export interface BlockWrapState {
 }
 
 
+interface EmacsMovementCommandDef {
+  id: string;
+  direction: "backward" | "forward";
+  defaultHotkeys: { modifiers: string[]; key: string }[];
+}
+
+const EMACS_MOVEMENT_COMMANDS: EmacsMovementCommandDef[] = [
+  {
+    id: "emacs-text-editor:previous-line",
+    direction: "backward",
+    defaultHotkeys: [{ modifiers: ["Ctrl"], key: "p" }],
+  },
+  {
+    id: "emacs-text-editor:backward-char",
+    direction: "backward",
+    defaultHotkeys: [{ modifiers: ["Ctrl"], key: "b" }],
+  },
+  {
+    id: "emacs-text-editor:move-beginning-of-line",
+    direction: "backward",
+    defaultHotkeys: [{ modifiers: ["Ctrl"], key: "a" }],
+  },
+  {
+    id: "emacs-text-editor:backward-word",
+    direction: "backward",
+    defaultHotkeys: [{ modifiers: ["Alt"], key: "b" }],
+  },
+  {
+    id: "emacs-text-editor:backward-paragraph",
+    direction: "backward",
+    defaultHotkeys: [{ modifiers: ["Alt", "Shift"], key: "[" }],
+  },
+  {
+    id: "emacs-text-editor:beginning-of-buffer",
+    direction: "backward",
+    defaultHotkeys: [{ modifiers: ["Alt", "Shift"], key: "," }],
+  },
+  {
+    id: "emacs-text-editor:next-line",
+    direction: "forward",
+    defaultHotkeys: [{ modifiers: ["Ctrl"], key: "n" }],
+  },
+  {
+    id: "emacs-text-editor:forward-char",
+    direction: "forward",
+    defaultHotkeys: [{ modifiers: ["Ctrl"], key: "f" }],
+  },
+  {
+    id: "emacs-text-editor:move-end-of-line",
+    direction: "forward",
+    defaultHotkeys: [{ modifiers: ["Ctrl"], key: "e" }],
+  },
+  {
+    id: "emacs-text-editor:forward-word",
+    direction: "forward",
+    defaultHotkeys: [{ modifiers: ["Alt"], key: "f" }],
+  },
+  {
+    id: "emacs-text-editor:forward-paragraph",
+    direction: "forward",
+    defaultHotkeys: [{ modifiers: ["Alt", "Shift"], key: "]" }],
+  },
+  {
+    id: "emacs-text-editor:end-of-buffer",
+    direction: "forward",
+    defaultHotkeys: [{ modifiers: ["Alt", "Shift"], key: "." }],
+  },
+];
+
 export default class VisibleCursorPlugin extends Plugin {
+  private lastFreezeToastTime: number = 0;
+  private navStallCount: number = 0;
+  private lastNavStallPos: number | null = null;
+  private lastNavStallTime: number = 0;
+
+  /**
+   * Recovers from an unresponsive cursor or navigation freeze caused by another
+   * plugin opening/rendering views in a background, deferred, or unfocused state.
+   */
+  recoverFromFreeze(view?: EditorView | null, reason?: string) {
+    if (this.debugCursorDiagnostics) {
+      console.warn("[visible-cursor] recoverFromFreeze triggered:", { reason, view });
+    }
+
+    // 1. Reset navigation and wrap states
+    this.blockWrapState = null;
+    this.lastKey = "";
+    this.lastUserEvent = "";
+    this.clickFenceActive = false;
+    this.navStallCount = 0;
+    this.lastNavStallPos = null;
+
+    // 2. Ensure view and workspace focus
+    if (view) {
+      try {
+        if (typeof this.app?.workspace?.iterateAllLeaves === "function") {
+          const leaf = this.getWorkspaceLeafForEditorView(view);
+          if (leaf && leaf !== this.app.workspace.activeLeaf) {
+            this.app.workspace.setActiveLeaf(leaf, { focus: true });
+          }
+        }
+      } catch (e) {
+        // Safe fallback
+      }
+      try {
+        view.focus?.();
+        view.requestMeasure?.();
+      } catch (e) {
+        // Safe fallback
+      }
+    }
+
+    // 3. Show detailed warning toast (debounced to once every 10 seconds)
+    const now = Date.now();
+    if (now - this.lastFreezeToastTime > 10000) {
+      this.lastFreezeToastTime = now;
+      if (typeof Notice !== "undefined") {
+        new Notice(
+          "Visible Cursor: Navigation freeze detected and recovered.\n\n" +
+            "Likely cause: Another plugin (such as a companion or background importer) opened this note without activating or focusing the editor.\n\n" +
+            "Action taken: Navigation state reset, editor refocused, and native keyboard navigation restored.",
+          10000,
+        );
+      }
+    }
+  }
   settings: VisibleCursorPluginSettings;
   lastKey: string = "";
   lastKeyDownTime: number = 0;
@@ -1046,35 +1199,63 @@ export default class VisibleCursorPlugin extends Plugin {
     });
   }
 
+  handleKeydown(event: KeyboardEvent, view: EditorView): boolean {
+    this.lastKey = event.key;
+    this.lastKeyDownTime = Date.now();
+
+    const moveDir = this.getMovementDirection(event);
+    if (moveDir) {
+      const currentPos = view.state?.selection?.main?.head ?? 0;
+      const now = Date.now();
+      const docLen = view.state?.doc?.length ?? 0;
+      const isAtEdge =
+        (currentPos === 0 && moveDir === "backward") ||
+        (currentPos === docLen && moveDir === "forward");
+      if (
+        this.lastNavStallPos === currentPos &&
+        now - this.lastNavStallTime < 1500
+      ) {
+        if (!isAtEdge) {
+          this.navStallCount++;
+          if (this.navStallCount >= 3) {
+            this.recoverFromFreeze(view, "repeated_nav_stall");
+          }
+        }
+      } else {
+        this.lastNavStallPos = currentPos;
+        this.lastNavStallTime = now;
+        this.navStallCount = 1;
+      }
+
+      if (this.repeatStartDocPos === null) {
+        this.repeatStartDocPos = view.state?.selection?.main?.head ?? 0;
+      }
+      if (this.repeatEndTimer) {
+        window.clearTimeout(this.repeatEndTimer);
+      }
+      this.repeatEndTimer = window.setTimeout(() => {
+        this.handleRepeatEnd(view);
+        this.repeatEndTimer = null;
+      }, 300);
+    } else {
+      this.navStallCount = 0;
+      this.lastNavStallPos = null;
+      if (this.repeatEndTimer) {
+        window.clearTimeout(this.repeatEndTimer);
+        this.repeatEndTimer = null;
+      }
+      this.repeatStartDocPos = null;
+    }
+
+    return false;
+  }
+
   createDOMEventHandlers() {
     const plugin = this;
 
     return EditorView.domEventHandlers({
       keydown: (event: KeyboardEvent, view: EditorView) => {
-        plugin.lastKey = event.key;
-        plugin.lastKeyDownTime = Date.now();
-
-        const isMove = plugin.isMovementKey(event.key, event.ctrlKey, event.metaKey);
-        if (isMove) {
-          if (plugin.repeatStartDocPos === null) {
-            plugin.repeatStartDocPos = view.state.selection.main.head;
-          }
-          if (plugin.repeatEndTimer) {
-            window.clearTimeout(plugin.repeatEndTimer);
-          }
-          plugin.repeatEndTimer = window.setTimeout(() => {
-            plugin.handleRepeatEnd(view);
-            plugin.repeatEndTimer = null;
-          }, 300);
-        } else {
-          if (plugin.repeatEndTimer) {
-            window.clearTimeout(plugin.repeatEndTimer);
-            plugin.repeatEndTimer = null;
-          }
-          plugin.repeatStartDocPos = null;
-        }
-
-        return false;
+        return plugin.handleKeydown(event, view);
       },
       scroll: (event: Event, view: EditorView) => {
         if (!plugin.settings.flashOnWindowScrolls) return false;
@@ -1316,6 +1497,8 @@ export default class VisibleCursorPlugin extends Plugin {
     };
 
     const handleRight = (view: EditorView): boolean => {
+      try {
+
       if (plugin.settings.customCursorStyle !== "block") return false;
 
       // Multi-cursor: if more than one cursor exists (including multiple collapsed
@@ -1345,9 +1528,16 @@ export default class VisibleCursorPlugin extends Plugin {
 
       plugin.blockWrapState = null;
       return false;
+    
+      } catch (err) {
+        plugin.recoverFromFreeze(view, "handleRight_error");
+        return false;
+      }
     };
 
     const handleLeft = (view: EditorView): boolean => {
+      try {
+
       if (plugin.settings.customCursorStyle !== "block") return false;
       // Clear state on any leftward movement (selection or not): we've left the
       // wrap boundary context, so any pending wrap-correction is no longer relevant.
@@ -1356,9 +1546,16 @@ export default class VisibleCursorPlugin extends Plugin {
       pendingDownFromWrapPos = null;
 
       return false;
+    
+      } catch (err) {
+        plugin.recoverFromFreeze(view, "handleLeft_error");
+        return false;
+      }
     };
 
     const handleHome = (view: EditorView): boolean => {
+      try {
+
       if (plugin.settings.customCursorStyle !== "block") return false;
       if (view.state.selection.ranges.length > 1) return false;
 
@@ -1376,9 +1573,16 @@ export default class VisibleCursorPlugin extends Plugin {
       plugin.lastKey = "Home";
 
       return false;
+    
+      } catch (err) {
+        plugin.recoverFromFreeze(view, "handleHome_error");
+        return false;
+      }
     };
 
     const handleEnd = (view: EditorView): boolean => {
+      try {
+
       if (plugin.settings.customCursorStyle !== "block") return false;
       if (view.state.selection.ranges.length > 1) return false;
 
@@ -1429,9 +1633,16 @@ export default class VisibleCursorPlugin extends Plugin {
       }
 
       return false;
+    
+      } catch (err) {
+        plugin.recoverFromFreeze(view, "handleEnd_error");
+        return false;
+      }
     };
 
     const handleDown = (view: EditorView): boolean => {
+      try {
+
       if (plugin.settings.customCursorStyle !== "block") return false;
 
       // Multi-cursor: skip wrap-correction so all cursors move identically via CM6.
@@ -1493,9 +1704,16 @@ export default class VisibleCursorPlugin extends Plugin {
         scrollIntoView: true,
       });
       return true;
+    
+      } catch (err) {
+        plugin.recoverFromFreeze(view, "handleDown_error");
+        return false;
+      }
     };
 
     const handleUp = (view: EditorView): boolean => {
+      try {
+
       if (plugin.settings.customCursorStyle !== "block") return false;
 
       // Multi-cursor: skip wrap-correction so all cursors move identically via CM6.
@@ -1562,9 +1780,17 @@ export default class VisibleCursorPlugin extends Plugin {
         pendingDownFromWrapPos,
       });
       return false;
+    
+      } catch (err) {
+        plugin.recoverFromFreeze(view, "handleUp_error");
+        return false;
+      }
     };
 
+    let consecutiveWrapCorrections = 0;
     const navCorrection = EditorView.updateListener.of((update: ViewUpdate) => {
+      try {
+
       if (!update.selectionSet && !update.docChanged) return;
 
       // Explicit re-entrancy guard: every corrective dispatch below is tagged with
@@ -1572,12 +1798,23 @@ export default class VisibleCursorPlugin extends Plugin {
       // of those dispatches, bail immediately rather than relying on assoc arithmetic
       // to implicitly prevent re-dispatching. This makes the loop-breaking contract
       // visible and robust against future edits.
+      if (update.docChanged) {
+        consecutiveWrapCorrections = 0;
+      }
+
       if (
         update.transactions.some((t) =>
           t.isUserEvent("visible-cursor.wrap-correction"),
         )
-      )
+      ) {
+        consecutiveWrapCorrections++;
+        if (consecutiveWrapCorrections > 2) {
+          plugin.recoverFromFreeze(update.view, "wrap_correction_loop");
+          consecutiveWrapCorrections = 0;
+        }
         return;
+      }
+      consecutiveWrapCorrections = 0;
 
       const sel = update.state.selection.main;
       const oldSel = update.startState.selection.main;
@@ -2000,6 +2237,10 @@ export default class VisibleCursorPlugin extends Plugin {
           }
         }
       }
+    
+      } catch (err) {
+        plugin.recoverFromFreeze(update.view, "navCorrection_error");
+      }
     });
 
     return [
@@ -2397,26 +2638,145 @@ export default class VisibleCursorPlugin extends Plugin {
     }
   }
 
-  isMovementKey(key: string, ctrlKey: boolean, metaKey: boolean): boolean {
-    const k = key.toLowerCase();
-    if (
-      key.startsWith("Arrow") ||
-      key === "PageUp" ||
-      key === "PageDown" ||
-      key === "Home" ||
-      key === "End"
-    ) {
-      return true;
+  isEmacsPluginInstalled(): boolean {
+    const plugins = (this.app as any)?.plugins;
+    if (!plugins) return false;
+    return !!(
+      plugins.getPlugin?.("emacs-text-editor") ||
+      plugins.plugins?.["emacs-text-editor"] ||
+      plugins.enabledPlugins?.has?.("emacs-text-editor")
+    );
+  }
+
+  getCommandHotkeys(
+    commandId: string,
+    defaultHotkeys: { modifiers: string[]; key: string }[]
+  ): { modifiers: string[]; key: string }[] {
+    const hotkeyManager = (this.app as any)?.hotkeyManager;
+    if (!hotkeyManager) return defaultHotkeys;
+
+    const custom = hotkeyManager.getHotkeys?.(commandId);
+    if (custom !== undefined && custom !== null) {
+      return custom;
     }
-    if (key === "j" || key === "k" || key === "h" || key === "l") {
-      return true;
+
+    const def = hotkeyManager.getDefaultHotkeys?.(commandId);
+    if (def !== undefined && def !== null) {
+      return def;
     }
-    if (ctrlKey || metaKey) {
-      if (k === "n" || k === "p" || k === "f" || k === "b" || k === "a" || k === "e") {
-        return true;
+
+    return defaultHotkeys;
+  }
+
+  matchesHotkey(
+    event: KeyboardEvent,
+    hotkey: { modifiers?: string[]; key: string }
+  ): boolean {
+    if (!hotkey || !hotkey.key || !event) return false;
+
+    const isMac = Platform.isMacOS;
+
+    let reqCtrl = false;
+    let reqMeta = false;
+    let reqAlt = false;
+    let reqShift = false;
+
+    for (const mod of hotkey.modifiers || []) {
+      if (mod === "Mod") {
+        if (isMac) reqMeta = true;
+        else reqCtrl = true;
+      } else if (mod === "Ctrl") {
+        reqCtrl = true;
+      } else if (mod === "Meta") {
+        reqMeta = true;
+      } else if (mod === "Alt") {
+        reqAlt = true;
+      } else if (mod === "Shift") {
+        reqShift = true;
       }
     }
-    return false;
+
+    if (!!event.ctrlKey !== reqCtrl) return false;
+    if (!!event.metaKey !== reqMeta) return false;
+    if (!!event.altKey !== reqAlt) return false;
+    if (!!event.shiftKey !== reqShift) return false;
+
+    const evtKey = event.key?.toLowerCase();
+    const targetKey = hotkey.key.toLowerCase();
+
+    if (targetKey === "space") {
+      return evtKey === " " || evtKey === "space";
+    }
+
+    if (targetKey === "," && evtKey === "<") return true;
+    if (targetKey === "." && evtKey === ">") return true;
+    if (targetKey === "/" && evtKey === "?") return true;
+    if (targetKey === ";" && evtKey === ":") return true;
+    if (targetKey === "'" && evtKey === "\"") return true;
+    if (targetKey === "[" && evtKey === "{") return true;
+    if (targetKey === "]" && evtKey === "}") return true;
+    if (targetKey === "-" && evtKey === "_") return true;
+    if (targetKey === "=" && evtKey === "+") return true;
+
+    return evtKey === targetKey;
+  }
+
+  getMovementDirection(event: KeyboardEvent): "forward" | "backward" | null {
+    if (!event || !event.key) return null;
+
+    // 1. Standard hardware navigation keys
+    if (!event.ctrlKey && !event.metaKey && !event.altKey) {
+      if (
+        event.key === "ArrowUp" ||
+        event.key === "ArrowLeft" ||
+        event.key === "PageUp" ||
+        event.key === "Home"
+      ) {
+        return "backward";
+      }
+      if (
+        event.key === "ArrowDown" ||
+        event.key === "ArrowRight" ||
+        event.key === "PageDown" ||
+        event.key === "End"
+      ) {
+        return "forward";
+      }
+    }
+
+    // 2. If Emacs text editor plugin is installed, resolve its active hotkey mappings
+    if (this.isEmacsPluginInstalled()) {
+      for (const cmd of EMACS_MOVEMENT_COMMANDS) {
+        const activeHotkeys = this.getCommandHotkeys(cmd.id, cmd.defaultHotkeys);
+        for (const hotkey of activeHotkeys) {
+          if (this.matchesHotkey(event, hotkey)) {
+            return cmd.direction;
+          }
+        }
+      }
+    }
+
+    return null;
+  }
+
+  isMovementKey(
+    keyOrEvent: string | KeyboardEvent,
+    ctrlKey?: boolean,
+    metaKey?: boolean,
+    altKey?: boolean,
+    shiftKey?: boolean
+  ): boolean {
+    if (typeof keyOrEvent === "object" && keyOrEvent !== null) {
+      return this.getMovementDirection(keyOrEvent) !== null;
+    }
+    const syntheticEvt = {
+      key: keyOrEvent,
+      ctrlKey: !!ctrlKey,
+      metaKey: !!metaKey,
+      altKey: !!altKey,
+      shiftKey: !!shiftKey,
+    } as KeyboardEvent;
+    return this.getMovementDirection(syntheticEvt) !== null;
   }
 
   onunload() {

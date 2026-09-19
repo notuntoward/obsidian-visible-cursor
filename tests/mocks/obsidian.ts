@@ -114,3 +114,9 @@ export class Setting {
 		return this;
 	}
 }
+
+export const Platform = {
+	isMacOS: false,
+	isMobile: false,
+	isDesktop: true,
+};
