@@ -23,6 +23,12 @@ export class Plugin {
 
 export class MarkdownView {}
 
+export class WorkspaceLeaf {}
+
+export class Notice {
+	constructor(public message?: string, public timeout?: number) {}
+}
+
 export class PluginSettingTab {
 	app: App;
 	plugin: unknown;

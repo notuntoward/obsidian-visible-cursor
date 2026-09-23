@@ -202,6 +202,78 @@ describe('Visible Cursor Freeze Recovery & Watchdog', () => {
 		expect(recoverSpy).not.toHaveBeenCalled();
 	});
 
+	it('does not treat vertical movement at line 1 or final line as a stall', () => {
+		const recoverSpy = vi.spyOn(plugin, 'recoverFromFreeze');
+
+		// ArrowUp on line 1 at column 15 (head is 15, not pos 0)
+		mockView.state.selection.main.head = 15;
+		mockView.state.doc.lines = 10;
+		mockView.state.doc.lineAt = vi.fn((pos: number) => {
+			if (pos === 15) return { number: 1, from: 0, to: 30 };
+			return { number: 10, from: 80, to: 100 };
+		});
+
+		const upEvt = { key: 'ArrowUp', ctrlKey: false, metaKey: false } as any;
+		for (let i = 0; i < 5; i++) {
+			plugin.handleKeydown(upEvt, mockView);
+		}
+		expect(recoverSpy).not.toHaveBeenCalled();
+
+		// ArrowDown on line 10 at column 5 (head is 85, not docLen 100)
+		mockView.state.selection.main.head = 85;
+		const downEvt = { key: 'ArrowDown', ctrlKey: false, metaKey: false } as any;
+		for (let i = 0; i < 5; i++) {
+			plugin.handleKeydown(downEvt, mockView);
+		}
+		expect(recoverSpy).not.toHaveBeenCalled();
+	});
+
+	it('does not treat rapid key auto-repeat (< 750ms) as a navigation stall', () => {
+		const recoverSpy = vi.spyOn(plugin, 'recoverFromFreeze');
+		mockView.state.selection.main.head = 20;
+
+		// Initial keydown
+		plugin.handleKeydown({ key: 'ArrowRight', ctrlKey: false, metaKey: false, repeat: false } as any, mockView);
+
+		// Rapid auto-repeat events firing (e.g. 25ms-33ms intervals during key hold)
+		for (let i = 0; i < 10; i++) {
+			plugin.handleKeydown({ key: 'ArrowRight', ctrlKey: false, metaKey: false, repeat: true } as any, mockView);
+		}
+
+		// Must not trigger recovery because elapsed time since stall start is < 750ms
+		expect(recoverSpy).not.toHaveBeenCalled();
+	});
+
+	it('treats sustained key auto-repeat (>= 750ms at same pos) as a navigation stall', () => {
+		const recoverSpy = vi.spyOn(plugin, 'recoverFromFreeze');
+		mockView.state.selection.main.head = 20;
+
+		// Initial keydown
+		plugin.handleKeydown({ key: 'ArrowRight', ctrlKey: false, metaKey: false, repeat: false } as any, mockView);
+
+		// Simulate passage of 800ms while holding key at same position
+		(plugin as any).lastNavStallTime = Date.now() - 800;
+
+		// Repeated keydown events past 750ms threshold
+		plugin.handleKeydown({ key: 'ArrowRight', ctrlKey: false, metaKey: false, repeat: true } as any, mockView);
+		plugin.handleKeydown({ key: 'ArrowRight', ctrlKey: false, metaKey: false, repeat: true } as any, mockView);
+
+		expect(recoverSpy).toHaveBeenCalledWith(mockView, 'repeated_nav_stall');
+	});
+
+	it('resets nav stall watchdog when cursor position moves', () => {
+		mockView.state.selection.main.head = 20;
+
+		plugin.handleKeydown({ key: 'ArrowRight', ctrlKey: false, metaKey: false, repeat: false } as any, mockView);
+		expect((plugin as any).navStallCount).toBe(1);
+		expect((plugin as any).lastNavStallPos).toBe(20);
+
+		// Cursor moves to 21
+		plugin.resetNavStall();
+		expect((plugin as any).navStallCount).toBe(0);
+		expect((plugin as any).lastNavStallPos).toBeNull();
+	});
+
 	it('catches exceptions in keymap navigation handlers, recovers, and falls back to native navigation (returns false)', () => {
 		const recoverSpy = vi.spyOn(plugin, 'recoverFromFreeze');
 

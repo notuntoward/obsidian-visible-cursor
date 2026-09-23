@@ -6,6 +6,13 @@ import { DEFAULT_SETTINGS, type VisibleCursorPluginSettings } from '../../settin
 import { ColorProvider } from '../../src/services/colorProvider';
 import type { VisibleCursorHarness } from './harnessTypes';
 
+if (typeof (window as any).activeDocument === 'undefined') {
+	(window as any).activeDocument = document;
+}
+if (typeof (window as any).activeWindow === 'undefined') {
+	(window as any).activeWindow = window;
+}
+
 document.body.classList.add('theme-dark');
 
 const root = document.createElement('div');
@@ -34,7 +41,9 @@ function createPluginStub() {
 		flashActive: true,
 		isComposing: false,
 		blockWrapState: null as null | { logicalPos: number; showPos: number; assoc: 1 | -1 },
-		colorProvider: new ColorProvider()
+		colorProvider: new ColorProvider(),
+		resetNavStall: () => {},
+		recoverFromFreeze: () => {}
 	};
 }
 

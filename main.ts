@@ -216,6 +216,13 @@ export class CustomCursorViewPlugin {
   update(update: ViewUpdate) {
     this.docChangedInUpdate = update.docChanged;
 
+    if (
+      update.selectionSet &&
+      update.state.selection.main.head !== update.startState.selection.main.head
+    ) {
+      this.plugin?.resetNavStall?.();
+    }
+
     if (update.docChanged && this.lastCursorDocPos !== null) {
       try {
         this.lastCursorDocPos = update.changes.mapPos(this.lastCursorDocPos);
@@ -1010,13 +1017,56 @@ export default class VisibleCursorPlugin extends Plugin {
   private lastNavStallPos: number | null = null;
   private lastNavStallTime: number = 0;
 
+  resetNavStall() {
+    this.navStallCount = 0;
+    this.lastNavStallPos = null;
+    this.lastNavStallTime = 0;
+  }
+
   /**
    * Recovers from an unresponsive cursor or navigation freeze caused by another
    * plugin opening/rendering views in a background, deferred, or unfocused state.
    */
-  recoverFromFreeze(view?: EditorView | null, reason?: string) {
-    if (this.debugCursorDiagnostics) {
-      console.warn("[visible-cursor] recoverFromFreeze triggered:", { reason, view });
+  recoverFromFreeze(view?: EditorView | null, reason?: string, error?: unknown) {
+    const sel = view?.state?.selection?.main;
+    const pos = sel?.head ?? -1;
+    let lineInfo: { lineNumber: number; col: number; lineText: string } | null = null;
+    if (view?.state?.doc && pos >= 0) {
+      try {
+        const line = view.state.doc.lineAt(pos);
+        lineInfo = {
+          lineNumber: line.number,
+          col: pos - line.from,
+          lineText: line.text,
+        };
+      } catch (e) {
+        // Safe fallback
+      }
+    }
+
+    try {
+      console.group(`[visible-cursor] Freeze Recovery Triggered: ${reason ?? "unknown"}`);
+      console.warn("Trigger reason:", reason);
+      if (error) console.error("Underlying Exception:", error);
+      if (typeof console.table === "function") {
+        console.table({
+          "Trigger Reason": reason,
+          "Cursor Pos": pos,
+          "Line Number": lineInfo?.lineNumber,
+          "Column": lineInfo?.col,
+          "Last Key": this.lastKey,
+          "Stall Count": this.navStallCount,
+          "Has Focus": view?.hasFocus,
+          "Block Wrap State": JSON.stringify(this.blockWrapState),
+        });
+      }
+      if (lineInfo?.lineText !== undefined) {
+        console.log("Current Line Content:", lineInfo.lineText);
+      }
+      console.trace("Call stack to recoverFromFreeze");
+      console.groupEnd();
+    } catch (e) {
+      // Safe fallback
     }
 
     // 1. Reset navigation and wrap states
@@ -1024,8 +1074,7 @@ export default class VisibleCursorPlugin extends Plugin {
     this.lastKey = "";
     this.lastUserEvent = "";
     this.clickFenceActive = false;
-    this.navStallCount = 0;
-    this.lastNavStallPos = null;
+    this.resetNavStall();
 
     // 2. Ensure view and workspace focus
     if (view) {
@@ -1053,9 +1102,9 @@ export default class VisibleCursorPlugin extends Plugin {
       this.lastFreezeToastTime = now;
       if (typeof Notice !== "undefined") {
         new Notice(
-          "Visible Cursor: Navigation freeze detected and recovered.\n\n" +
-            "Likely cause: Another plugin (such as a companion or background importer) opened this note without activating or focusing the editor.\n\n" +
-            "Action taken: Navigation state reset, editor refocused, and native keyboard navigation restored.",
+          `Visible Cursor: Navigation freeze detected and recovered (${reason ?? "unknown"}).\n\n` +
+            `Likely cause: Another plugin (such as a companion or background importer) opened this note without activating or focusing the editor, or a navigation stall/exception occurred. Details logged to DevTools console (Ctrl+Shift+I).\n\n` +
+            `Action taken: Navigation state reset, editor refocused, and native keyboard navigation restored.`,
           10000,
         );
       }
@@ -1208,17 +1257,53 @@ export default class VisibleCursorPlugin extends Plugin {
       const currentPos = view.state?.selection?.main?.head ?? 0;
       const now = Date.now();
       const docLen = view.state?.doc?.length ?? 0;
-      const isAtEdge =
+      let isAtEdge =
         (currentPos === 0 && moveDir === "backward") ||
         (currentPos === docLen && moveDir === "forward");
+
+      if (!isAtEdge && view.state?.doc && typeof view.state.doc.lineAt === "function") {
+        const isVertical =
+          event.key === "ArrowUp" ||
+          event.key === "ArrowDown" ||
+          event.key === "PageUp" ||
+          event.key === "PageDown" ||
+          (event.ctrlKey && (event.key === "p" || event.key === "n"));
+        if (isVertical) {
+          try {
+            const line = view.state.doc.lineAt(currentPos);
+            if (moveDir === "backward" && line.number === 1) {
+              isAtEdge = true;
+            } else if (moveDir === "forward" && line.number === view.state.doc.lines) {
+              isAtEdge = true;
+            }
+          } catch (e) {
+            // Safe fallback
+          }
+        }
+      }
+
       if (
         this.lastNavStallPos === currentPos &&
         now - this.lastNavStallTime < 1500
       ) {
         if (!isAtEdge) {
-          this.navStallCount++;
-          if (this.navStallCount >= 3) {
-            this.recoverFromFreeze(view, "repeated_nav_stall");
+          const isRepeat = !!event.repeat;
+          if (isRepeat) {
+            // For sustained key-repeats (holding a key down), the cursor is only
+            // considered stalled if it has remained stuck at the same position
+            // for at least 750ms of continuous key repeat.
+            if (now - this.lastNavStallTime >= 750) {
+              this.navStallCount++;
+              if (this.navStallCount >= 3) {
+                this.recoverFromFreeze(view, "repeated_nav_stall");
+              }
+            }
+          } else {
+            // Distinct user keypresses: count consecutive stalled navigation attempts
+            this.navStallCount++;
+            if (this.navStallCount >= 3) {
+              this.recoverFromFreeze(view, "repeated_nav_stall");
+            }
           }
         }
       } else {
@@ -1238,8 +1323,7 @@ export default class VisibleCursorPlugin extends Plugin {
         this.repeatEndTimer = null;
       }, 300);
     } else {
-      this.navStallCount = 0;
-      this.lastNavStallPos = null;
+      this.resetNavStall();
       if (this.repeatEndTimer) {
         window.clearTimeout(this.repeatEndTimer);
         this.repeatEndTimer = null;
@@ -1530,7 +1614,7 @@ export default class VisibleCursorPlugin extends Plugin {
       return false;
     
       } catch (err) {
-        plugin.recoverFromFreeze(view, "handleRight_error");
+        plugin.recoverFromFreeze(view, "handleRight_error", err);
         return false;
       }
     };
@@ -1548,7 +1632,7 @@ export default class VisibleCursorPlugin extends Plugin {
       return false;
     
       } catch (err) {
-        plugin.recoverFromFreeze(view, "handleLeft_error");
+        plugin.recoverFromFreeze(view, "handleLeft_error", err);
         return false;
       }
     };
@@ -1575,7 +1659,7 @@ export default class VisibleCursorPlugin extends Plugin {
       return false;
     
       } catch (err) {
-        plugin.recoverFromFreeze(view, "handleHome_error");
+        plugin.recoverFromFreeze(view, "handleHome_error", err);
         return false;
       }
     };
@@ -1635,7 +1719,7 @@ export default class VisibleCursorPlugin extends Plugin {
       return false;
     
       } catch (err) {
-        plugin.recoverFromFreeze(view, "handleEnd_error");
+        plugin.recoverFromFreeze(view, "handleEnd_error", err);
         return false;
       }
     };
@@ -1706,7 +1790,7 @@ export default class VisibleCursorPlugin extends Plugin {
       return true;
     
       } catch (err) {
-        plugin.recoverFromFreeze(view, "handleDown_error");
+        plugin.recoverFromFreeze(view, "handleDown_error", err);
         return false;
       }
     };
@@ -1782,7 +1866,7 @@ export default class VisibleCursorPlugin extends Plugin {
       return false;
     
       } catch (err) {
-        plugin.recoverFromFreeze(view, "handleUp_error");
+        plugin.recoverFromFreeze(view, "handleUp_error", err);
         return false;
       }
     };
@@ -1792,6 +1876,13 @@ export default class VisibleCursorPlugin extends Plugin {
       try {
 
       if (!update.selectionSet && !update.docChanged) return;
+
+      if (
+        update.selectionSet &&
+        update.state.selection.main.head !== update.startState.selection.main.head
+      ) {
+        plugin?.resetNavStall?.();
+      }
 
       // Explicit re-entrancy guard: every corrective dispatch below is tagged with
       // 'visible-cursor.wrap-correction'. When navCorrection is re-triggered by one
@@ -2239,7 +2330,7 @@ export default class VisibleCursorPlugin extends Plugin {
       }
     
       } catch (err) {
-        plugin.recoverFromFreeze(update.view, "navCorrection_error");
+        plugin.recoverFromFreeze(update.view, "navCorrection_error", err);
       }
     });
 
