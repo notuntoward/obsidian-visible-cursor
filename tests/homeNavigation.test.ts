@@ -363,3 +363,70 @@ describe('home navigation wrap diagnostics', () => {
 	});
 });
 
+// ---------------------------------------------------------------------------
+// Cross-plugin contract with Steady Links (obsidian-steady-links)
+//
+// Steady Links dispatches purely corrective, selection-only transactions
+// (e.g. moving the cursor out of a hidden-syntax link to the link's right edge
+// when Enter is pressed). Those can be multi-character and/or cross-line, which
+// navCorrection would otherwise treat as a user "large move" and react to
+// (consuming lastKey, setting lastUserEvent, dispatching wrap corrections), so
+// the two plugins would fight over the cursor.
+//
+// navCorrection must therefore ignore transactions tagged "select.steadyLinks".
+// Unlike the weaker test above (empty coordinates, so nothing would dispatch
+// either way), each test here first proves the identical move DOES make
+// navCorrection act when untagged, then proves the tagged move is ignored. If
+// someone removes the "select.steadyLinks" early-exit in navCorrection, these
+// fail.
+// ---------------------------------------------------------------------------
+describe('Steady Links contract: select.steadyLinks transactions are ignored', () => {
+	// A large same-line move that lands on a soft-wrap boundary, flagged as an
+	// End move via lastKey. Untagged, navCorrection consumes lastKey, records
+	// lastUserEvent = 'end' and dispatches a pos - 1 wrap correction.
+	const softWrapCoords = {
+		'0:-1': { top: 0, bottom: 20, left: 0, right: 8 },
+		'50:-1': { top: 0, bottom: 20, left: 800, right: 808 },
+		'50:1': { top: 20, bottom: 40, left: 0, right: 8 }
+	};
+
+	it('control: the same multi-character move untagged DOES make navCorrection act', () => {
+		const plugin = makePlugin();
+		plugin.lastKey = 'End';
+		const view = makeView(softWrapCoords, 50, -1);
+
+		getNavCorrection(plugin)(makeUpdate(view, 0, -1, 50, -1, []));
+
+		expect(view.dispatch).toHaveBeenCalled();
+		expect(plugin.lastKey).toBe('');
+		expect((plugin as { lastUserEvent: string }).lastUserEvent).toBe('end');
+	});
+
+	it('the same move tagged select.steadyLinks causes no dispatch and no state change', () => {
+		const plugin = makePlugin();
+		plugin.lastKey = 'End';
+		const view = makeView(softWrapCoords, 50, -1);
+
+		getNavCorrection(plugin)(makeUpdate(view, 0, -1, 50, -1, ['select.steadyLinks']));
+
+		expect(view.dispatch).not.toHaveBeenCalled();
+		// lastKey is a one-shot signal; an ignored transaction must not consume it.
+		expect(plugin.lastKey).toBe('End');
+		expect((plugin as { lastUserEvent: string }).lastUserEvent).not.toBe('end');
+		expect(plugin.blockWrapState).toBeNull();
+	});
+
+	it('a tagged transaction batched with other transactions is still ignored', () => {
+		const plugin = makePlugin();
+		plugin.lastKey = 'End';
+		const view = makeView(softWrapCoords, 50, -1);
+		const update = makeUpdate(view, 0, -1, 50, -1, ['select.steadyLinks']);
+		update.transactions = [makeTransaction([]), makeTransaction(['select.steadyLinks'])];
+
+		getNavCorrection(plugin)(update);
+
+		expect(view.dispatch).not.toHaveBeenCalled();
+		expect(plugin.lastKey).toBe('End');
+	});
+});
+
