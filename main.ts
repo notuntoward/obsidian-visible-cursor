@@ -1018,12 +1018,16 @@ export default class VisibleCursorPlugin extends Plugin {
   private lastFreezeToastTime: number = 0;
   private navStallCount: number = 0;
   private lastNavStallPos: number | null = null;
+  /** When the current stall started (first keydown at the stuck position). */
   private lastNavStallTime: number = 0;
+  /** Most recent navigation keydown at the stuck position; the 1.5s window slides from here. */
+  private lastNavStallKeyTime: number = 0;
 
   resetNavStall() {
     this.navStallCount = 0;
     this.lastNavStallPos = null;
     this.lastNavStallTime = 0;
+    this.lastNavStallKeyTime = 0;
   }
 
   /**
@@ -1287,8 +1291,11 @@ export default class VisibleCursorPlugin extends Plugin {
 
       if (
         this.lastNavStallPos === currentPos &&
-        now - this.lastNavStallTime < 1500
+        // Sliding window: measured from the previous stalled keydown, not from the start
+        // of the stall, so slow one-key-at-a-time presses (about 1s apart) still add up.
+        now - this.lastNavStallKeyTime < 1500
       ) {
+        this.lastNavStallKeyTime = now;
         if (!isAtEdge) {
           const isRepeat = !!event.repeat;
           if (isRepeat) {
@@ -1312,6 +1319,7 @@ export default class VisibleCursorPlugin extends Plugin {
       } else {
         this.lastNavStallPos = currentPos;
         this.lastNavStallTime = now;
+        this.lastNavStallKeyTime = now;
         this.navStallCount = 1;
       }
 

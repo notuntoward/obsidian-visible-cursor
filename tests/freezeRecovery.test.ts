@@ -261,6 +261,43 @@ describe('Visible Cursor Freeze Recovery & Watchdog', () => {
 		expect(recoverSpy).toHaveBeenCalledWith(mockView, 'repeated_nav_stall');
 	});
 
+	it('detects a stall from slow one-at-a-time presses whose total span exceeds 1.5s (sliding window)', () => {
+		vi.useFakeTimers();
+		try {
+			vi.setSystemTime(new Date('2026-01-01T00:00:00Z'));
+			const recoverSpy = vi.spyOn(plugin, 'recoverFromFreeze');
+			const evt = { key: 'ArrowDown', ctrlKey: false, metaKey: false, repeat: false } as any;
+
+			plugin.handleKeydown(evt, mockView);
+			vi.advanceTimersByTime(1000);
+			plugin.handleKeydown(evt, mockView);
+			expect(recoverSpy).not.toHaveBeenCalled();
+			vi.advanceTimersByTime(1000); // 2s after the first press, 1s after the previous
+			plugin.handleKeydown(evt, mockView);
+
+			expect(recoverSpy).toHaveBeenCalledWith(mockView, 'repeated_nav_stall');
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it('does not count presses separated by more than 1.5s as one stall', () => {
+		vi.useFakeTimers();
+		try {
+			vi.setSystemTime(new Date('2026-01-01T00:00:00Z'));
+			const recoverSpy = vi.spyOn(plugin, 'recoverFromFreeze');
+			const evt = { key: 'ArrowDown', ctrlKey: false, metaKey: false, repeat: false } as any;
+
+			for (let i = 0; i < 5; i++) {
+				plugin.handleKeydown(evt, mockView);
+				vi.advanceTimersByTime(2000);
+			}
+
+			expect(recoverSpy).not.toHaveBeenCalled();
+		} finally {
+			vi.useRealTimers();
+		}
+	});
 	it('resets nav stall watchdog when cursor position moves', () => {
 		mockView.state.selection.main.head = 20;
 
