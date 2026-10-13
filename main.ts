@@ -234,9 +234,12 @@ export class CustomCursorViewPlugin {
     if (
       update.docChanged ||
       update.selectionSet ||
+      update.focusChanged ||
       update.geometryChanged ||
       update.viewportChanged
     ) {
+      // focusChanged: the custom cursor is only drawn while view.hasFocus, so regaining
+      // focus without a selection change (e.g. after clicking between panes) must redraw it.
       update.view.requestMeasure(this.buildMeasureReq());
     }
   }
