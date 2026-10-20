@@ -601,6 +601,21 @@ export class CustomCursorViewPlugin {
                 } else {
                   char = " ";
                 }
+                // With assoc -1, coordsAtPos returns the right edge of any
+                // preceding widget (e.g. a rendered list bullet), which can
+                // sit left of where the character itself starts. The block
+                // covers the character, so use its own left edge.
+                if (assocForCoords === -1) {
+                  const ownCoords = view.coordsAtPos(visualPos, 1);
+                  if (
+                    ownCoords &&
+                    ownCoords.left > coordsLeft &&
+                    Math.abs(ownCoords.top - rawCoords.top) <
+                      view.defaultLineHeight * 0.3
+                  ) {
+                    coordsLeft = ownCoords.left;
+                  }
+                }
               }
 
               vpos1 = Math.min(
