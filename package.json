@@ -1,44 +1,45 @@
 {
-	"name": "visible-cursor",
-	"version": "1.0.15",
-	"description": "Flash cursor position after big moves and cursor jumps - block cursor with smart highlighting",
-	"main": "main.js",
-	"scripts": {
-		"lint": "eslint . --max-warnings=0",
-		"dev": "node esbuild.config.mjs",
-		"build": "npm run lint && npm test && tsc -noEmit -skipLibCheck && node esbuild.config.mjs production",
-		"test": "vitest run",
-		"test:run": "vitest run",
-		"test:coverage": "vitest run --coverage",
-		"test:browser": "playwright test",
-		"test:watch": "vitest"
-	},
-	"keywords": [
-		"cursor",
-		"cues",
-		"navigation",
-		"visibility"
-	],
-	"author": "Scott Otterson",
-	"license": "MIT",
-	"devDependencies": {
-		"@eslint/js": "^9.39.4",
-		"@playwright/test": "^1.59.1",
-		"@types/node": "^22.0.0",
-		"@typescript-eslint/eslint-plugin": "^8.60.1",
-		"@typescript-eslint/parser": "^8.60.1",
-		"@vitest/coverage-v8": "^4.1.11",
-		"builtin-modules": "^3.2.0",
-		"esbuild": "^0.28.2",
-		"eslint": "^9.39.4",
-		"eslint-plugin-obsidianmd": "^0.3.0",
-		"globals": "^17.6.0",
-		"obsidian": "^1.13.1",
-		"playwright": "^1.59.1",
-		"tslib": "2.4.0",
-		"typescript": "^5.9.3",
-		"typescript-eslint": "^8.60.1",
-		"vite": "^7.3.6",
-		"vitest": "^4.1.11"
-	}
+  "name": "visible-cursor",
+  "version": "1.0.15",
+  "description": "Flash cursor position after big moves and cursor jumps - block cursor with smart highlighting",
+  "main": "main.js",
+  "scripts": {
+    "lint": "eslint . --max-warnings=0",
+    "dev": "node esbuild.config.mjs",
+    "build": "npm run lint && npm test && tsc -noEmit -skipLibCheck && node esbuild.config.mjs production",
+    "test": "vitest run",
+    "test:run": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "test:browser": "playwright test",
+    "test:watch": "vitest"
+  },
+  "keywords": [
+    "cursor",
+    "cues",
+    "navigation",
+    "visibility"
+  ],
+  "author": "Scott Otterson",
+  "license": "MIT",
+  "devDependencies": {
+    "@eslint/js": "^9.39.4",
+    "@playwright/test": "^1.59.1",
+    "@types/node": "^22.0.0",
+    "@typescript-eslint/eslint-plugin": "^8.60.1",
+    "@typescript-eslint/parser": "^8.60.1",
+    "@vitest/coverage-v8": "^4.1.11",
+    "builtin-modules": "^3.2.0",
+    "commons": "file:../obsidian-commons",
+    "esbuild": "^0.28.2",
+    "eslint": "^9.39.4",
+    "eslint-plugin-obsidianmd": "^0.3.0",
+    "globals": "^17.6.0",
+    "obsidian": "~1.14.4",
+    "playwright": "^1.59.1",
+    "tslib": "2.4.0",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.60.1",
+    "vite": "^7.3.6",
+    "vitest": "^4.1.11"
+  }
 }

@@ -45,7 +45,8 @@ export class FlashRenderer {
     }
 
     // Fallback cleanup timeout at animation duration
-    window.setTimeout(cleanup, duration);
+    const win = (parent as any)?.ownerDocument?.defaultView ?? activeWindow ?? window;
+    win.setTimeout(cleanup, duration);
   }
 
   /**

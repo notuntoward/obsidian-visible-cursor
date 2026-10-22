@@ -7,7 +7,7 @@
 		"target": "ES6",
 		"allowJs": true,
 		"noImplicitAny": true,
-		"moduleResolution": "node",
+		"moduleResolution": "bundler",
 		"importHelpers": true,
 		"isolatedModules": true,
 		"strictNullChecks": true,
@@ -16,9 +16,18 @@
 			"ES5",
 			"ES6",
 			"ES7"
-		]
+		],
+		"paths": {
+			"obsidian": [
+				"./node_modules/obsidian"
+			],
+			"commons/*": [
+				"../obsidian-commons/src/*/index.ts"
+			]
+		}
 	},
 	"include": [
-		"**/*.ts"
+		"**/*.ts",
+		"**/*.mts"
 	]
 }

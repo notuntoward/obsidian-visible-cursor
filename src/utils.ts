@@ -44,25 +44,46 @@ export function migrateSettings(raw: Record<string, unknown>): boolean {
 /**
  * Convert a hex color string to RGB values
  */
-export function hexToRgb(hex: string): { r: number; g: number; b: number } {
-	if (hex.startsWith('rgb')) {
-		const matches = hex.match(/\d+/g);
-		if (matches && matches.length >= 3) {
+export function hexToRgb(color: string): { r: number; g: number; b: number } {
+	if (!color || typeof color !== 'string') {
+		return { r: 100, g: 150, b: 255 };
+	}
+	const trimmed = color.trim().toLowerCase();
+
+	// RGB or RGBA functional notation
+	if (trimmed.startsWith('rgb')) {
+		const match = trimmed.match(/^rgba?\s*\(\s*([\d.]+%?)\s*[, ]\s*([\d.]+%?)\s*[, ]\s*([\d.]+%?)/);
+		if (match) {
+			const parseVal = (val: string) => {
+				if (val.endsWith('%')) {
+					return Math.min(255, Math.max(0, Math.round((parseFloat(val) / 100) * 255)));
+				}
+				return Math.min(255, Math.max(0, Math.round(parseFloat(val))));
+			};
 			return {
-				r: parseInt(matches[0], 10),
-				g: parseInt(matches[1], 10),
-				b: parseInt(matches[2], 10)
+				r: parseVal(match[1]),
+				g: parseVal(match[2]),
+				b: parseVal(match[3]),
 			};
 		}
 	}
-	const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
-	return result
-		? {
-				r: parseInt(result[1], 16),
-				g: parseInt(result[2], 16),
-				b: parseInt(result[3], 16)
-		  }
-		: { r: 100, g: 150, b: 255 };
+
+	// Hex notation
+	let cleanHex = trimmed.startsWith('#') ? trimmed.slice(1) : trimmed;
+	if (/^[0-9a-f]{3,4}$/i.test(cleanHex)) {
+		const r = parseInt(cleanHex[0] + cleanHex[0], 16);
+		const g = parseInt(cleanHex[1] + cleanHex[1], 16);
+		const b = parseInt(cleanHex[2] + cleanHex[2], 16);
+		return { r, g, b };
+	}
+	if (/^[0-9a-f]{6,8}$/i.test(cleanHex)) {
+		const r = parseInt(cleanHex.slice(0, 2), 16);
+		const g = parseInt(cleanHex.slice(2, 4), 16);
+		const b = parseInt(cleanHex.slice(4, 6), 16);
+		return { r, g, b };
+	}
+
+	return { r: 100, g: 150, b: 255 };
 }
 
 /**

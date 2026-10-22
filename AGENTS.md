@@ -1,5 +1,19 @@
 # Agent Instructions for obsidian-visible-cursor
 
+## Shared library: commons
+
+This plugin uses `commons` (repo `obsidian-commons`, normally `C:\Users\scott\repos\obsidian-commons`).
+Window, tab group, tab, pop-out, window-focus and modal-chooser logic (and later color
+logic) comes from `commons/*`. Never reimplement it here and never read Obsidian's
+undocumented fields (`leaf.detached`, `container.win`, `rootSplit`, `tabHeaderEl`,
+`chooser.setSelectedItem`, ...) in this plugin. If commons lacks something or is wrong,
+change commons and tell the user: see the global rule "Obsidian shared library" and
+`obsidian-commons/AGENTS.md`. Rules that moved to commons are enforced by its guardrail
+tests; the rules below are the plugin-specific ones that remain.
+
+Window resolution (`getWindowForLeaf`, `getMainWindow`), focused leaf resolution (`getActiveLeafInFocusedWindow`), multi-window DOM event hooking (`forEachWindow`), and owner-window timers/frames (`setTimeoutIn`, `requestFrameIn`) are now owned and tested by `commons`. Migration status: `obsidian-commons/docs/CHECKLIST.md` Phase 3.
+
+
 ## Critical: Do not remove the "select.steadyLinks" / "select.programmatic" ignore in navCorrection
 
 `navCorrection` (in `createBlockCursorNavFilter()`) early-returns when any
@@ -226,15 +240,15 @@ If `isRightCellRenderable` is false (as is always the case at the trailing edge 
   flash, navigation state
 - **Playwright** (`npm run test:browser`): 3+ browser tests using a real
   CM6 editor with `CustomCursorViewPlugin`
-- **Vitest config** (`vitest.config.ts`): aliases `obsidian` to mock and
+- **Vitest config** (`vitest.config.mts`): aliases `obsidian` to mock and
   `../main` to source `main.ts` (not built `main.js`)
-- **Vite config** (`vite.config.ts`): same `obsidian` alias for Playwright
+- **Vite config** (`vite.config.mts`): same `obsidian` alias for Playwright
   browser harness
 
 ### Import resolution
 
 The `../main` import in `tests/homeNavigation.test.ts` resolves to `main.ts`
-via the Vitest alias in `vitest.config.ts`.  Do NOT change this import to
+via the Vitest alias in `vitest.config.mts`.  Do NOT change this import to
 `../main.ts` (breaks `tsc`) or `../main.js` (breaks Vitest aliasing).
 
 ## Note: worktree builds (Agent Manager) and the vault junction

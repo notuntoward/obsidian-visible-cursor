@@ -17,8 +17,8 @@ describe('hexToRgb', () => {
 		expect(hexToRgb('ff0000')).toEqual({ r: 255, g: 0, b: 0 });
 	});
 
-	it('should return default color for invalid hex (3-digit not supported)', () => {
-		expect(hexToRgb('#f00')).toEqual({ r: 100, g: 150, b: 255 });
+	it('should convert a 3-digit hex color to RGB', () => {
+		expect(hexToRgb('#f00')).toEqual({ r: 255, g: 0, b: 0 });
 	});
 
 	it('should return default color for invalid hex', () => {

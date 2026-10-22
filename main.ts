@@ -7,6 +7,18 @@ import {
   VisibleCursorSettingTab,
 } from "./settings";
 import { migrateSettings, isEditorTextClick } from "./src/utils";
+import {
+  getActiveLeafInFocusedWindow as getActiveLeafInFocusedWindowCommons,
+  getWindowForLeaf,
+  getMainWindow,
+} from "commons/workspace";
+import {
+  forEachWindow,
+  ownerWindow,
+  eventWindow,
+  setTimeoutIn,
+  requestFrameIn,
+} from "commons/windows";
 import { ColorProvider } from "./src/services/colorProvider";
 import { FlashScheduler, type FlashState } from "./src/services/flashScheduler";
 import { FlashRenderer } from "./src/services/flashRenderer";
@@ -118,12 +130,15 @@ export function getPreciseCursorCoords(
   const skipNativeSelection =
     forceCoordAPI || isSoftWrap(view, pos) || mainSelectionNonEmpty;
 
+  const win = (view?.dom ? ownerWindow(view.dom) : null) ?? (typeof window !== "undefined" ? window : null);
+  const sel = win?.getSelection?.() ?? (view?.dom ? view.dom.ownerDocument?.getSelection?.() : null);
+
   if (
     !skipNativeSelection &&
-    typeof window !== "undefined" &&
-    typeof window.getSelection === "function"
+    sel &&
+    typeof sel.getRangeAt === "function" &&
+    sel.rangeCount > 0
   ) {
-    const sel = window.getSelection();
     if (sel && sel.rangeCount > 0) {
       const range = sel.getRangeAt(0);
       if (
@@ -1155,9 +1170,9 @@ export default class VisibleCursorPlugin extends Plugin {
   private clickFenceActive: boolean = false;
   private pendingFlashTrigger: string | null = null;
   private scrollFlashSuppressedUntil: number = 0;
-  private boundStartFence: () => void;
-  private boundEndFenceSoon: () => void;
-  private boundClickEndFence: () => void;
+  private boundStartFence: (evt?: Event) => void;
+  private boundEndFenceSoon: (evt?: Event) => void;
+  private boundClickEndFence: (evt?: Event) => void;
 
   // Shared state for block cursor wrap navigation
   blockWrapState: BlockWrapState | null = null;
@@ -1196,10 +1211,11 @@ export default class VisibleCursorPlugin extends Plugin {
     ]);
 
     this.registerEvent(
-      this.app.workspace.on("active-leaf-change", () => {
+      this.app.workspace.on("active-leaf-change", (leaf) => {
         if (this.settings.flashOnWindowChanges) {
-          window.requestAnimationFrame(() =>
-            window.requestAnimationFrame(() =>
+          const win = (leaf ? getWindowForLeaf(leaf) : null) ?? getMainWindow(this.app) ?? window;
+          requestFrameIn(win, () =>
+            requestFrameIn(win, () =>
               this.scheduleFlash("view-change", false),
             ),
           );
@@ -1210,8 +1226,10 @@ export default class VisibleCursorPlugin extends Plugin {
     this.registerEvent(
       this.app.workspace.on("layout-change", () => {
         if (this.settings.flashOnWindowChanges) {
-          window.requestAnimationFrame(() =>
-            window.requestAnimationFrame(() =>
+          const activeLeaf = this.getActiveLeafInFocusedWindow();
+          const win = (activeLeaf ? getWindowForLeaf(activeLeaf) : null) ?? getMainWindow(this.app) ?? window;
+          requestFrameIn(win, () =>
+            requestFrameIn(win, () =>
               this.scheduleFlash("layout-change", false),
             ),
           );
@@ -1223,7 +1241,9 @@ export default class VisibleCursorPlugin extends Plugin {
       this.app.workspace.on("css-change", () => {
         this.app.workspace.updateOptions();
         this.colorProvider.clearCache();
-        window.requestAnimationFrame(() => this.refreshDecorations());
+        const activeLeaf = this.getActiveLeafInFocusedWindow();
+        const win = (activeLeaf ? getWindowForLeaf(activeLeaf) : null) ?? getMainWindow(this.app) ?? window;
+        requestFrameIn(win, () => this.refreshDecorations());
       }),
     );
 
@@ -1233,25 +1253,43 @@ export default class VisibleCursorPlugin extends Plugin {
         this.clickFenceActive = true;
       }
     };
-    this.boundEndFenceSoon = () => {
-      window.setTimeout(() => {
+    this.boundEndFenceSoon = (evt?: Event) => {
+      const win = (evt ? eventWindow(evt) : null) ?? getMainWindow(this.app) ?? window;
+      setTimeoutIn(win, () => {
         this.clickFenceActive = false;
       }, 400);
     };
-    this.boundClickEndFence = () => {
-      this.boundEndFenceSoon();
+    this.boundClickEndFence = (evt?: Event) => {
+      this.boundEndFenceSoon(evt);
     };
-    window.addEventListener("pointerdown", this.boundStartFence, {
-      capture: true,
-    });
-    window.addEventListener("pointerup", this.boundEndFenceSoon, {
-      capture: true,
-    });
-    window.addEventListener("pointercancel", this.boundEndFenceSoon, {
-      capture: true,
-    });
-    window.addEventListener("click", this.boundClickEndFence, {
-      capture: true,
+
+    forEachWindow(this, (win) => {
+      win.addEventListener("pointerdown", this.boundStartFence, {
+        capture: true,
+      });
+      win.addEventListener("pointerup", this.boundEndFenceSoon, {
+        capture: true,
+      });
+      win.addEventListener("pointercancel", this.boundEndFenceSoon, {
+        capture: true,
+      });
+      win.addEventListener("click", this.boundClickEndFence, {
+        capture: true,
+      });
+      return () => {
+        win.removeEventListener("pointerdown", this.boundStartFence, {
+          capture: true,
+        });
+        win.removeEventListener("pointerup", this.boundEndFenceSoon, {
+          capture: true,
+        });
+        win.removeEventListener("pointercancel", this.boundEndFenceSoon, {
+          capture: true,
+        });
+        win.removeEventListener("click", this.boundClickEndFence, {
+          capture: true,
+        });
+      };
     });
   }
 
@@ -1341,17 +1379,19 @@ export default class VisibleCursorPlugin extends Plugin {
       if (this.repeatStartDocPos === null) {
         this.repeatStartDocPos = view.state?.selection?.main?.head ?? 0;
       }
+      const win = (view?.dom ? ownerWindow(view.dom) : null) ?? window;
       if (this.repeatEndTimer) {
-        window.clearTimeout(this.repeatEndTimer);
+        win.clearTimeout(this.repeatEndTimer);
       }
-      this.repeatEndTimer = window.setTimeout(() => {
+      this.repeatEndTimer = win.setTimeout(() => {
         this.handleRepeatEnd(view);
         this.repeatEndTimer = null;
       }, 300);
     } else {
       this.resetNavStall();
       if (this.repeatEndTimer) {
-        window.clearTimeout(this.repeatEndTimer);
+        const win = (view?.dom ? ownerWindow(view.dom) : null) ?? window;
+        win.clearTimeout(this.repeatEndTimer);
         this.repeatEndTimer = null;
       }
       this.repeatStartDocPos = null;
@@ -1371,14 +1411,15 @@ export default class VisibleCursorPlugin extends Plugin {
         if (!plugin.settings.flashOnWindowScrolls) return false;
         if (!view.hasFocus) return false;
 
+        const win = (view?.dom ? ownerWindow(view.dom) : null) ?? window;
         const scrolledLeaf = plugin.getWorkspaceLeafForEditorView(view);
         if (
           !scrolledLeaf ||
-          scrolledLeaf.getContainer()?.win !==
-            plugin.getActiveLeafInFocusedWindow()?.getContainer()?.win
+          getWindowForLeaf(scrolledLeaf) !==
+            getWindowForLeaf(plugin.getActiveLeafInFocusedWindow())
         ) {
           if (plugin.scrollDebounceTimer) {
-            window.clearTimeout(plugin.scrollDebounceTimer);
+            win.clearTimeout(plugin.scrollDebounceTimer);
             plugin.scrollDebounceTimer = null;
           }
           return false;
@@ -1386,7 +1427,7 @@ export default class VisibleCursorPlugin extends Plugin {
 
         if (!plugin.isCursorInViewport(view)) {
           if (plugin.scrollDebounceTimer) {
-            window.clearTimeout(plugin.scrollDebounceTimer);
+            win.clearTimeout(plugin.scrollDebounceTimer);
             plugin.scrollDebounceTimer = null;
           }
           return false;
@@ -1399,12 +1440,12 @@ export default class VisibleCursorPlugin extends Plugin {
         plugin.lastScrollPosition = currentScrollPos;
 
         if (plugin.scrollDebounceTimer) {
-          window.clearTimeout(plugin.scrollDebounceTimer);
+          win.clearTimeout(plugin.scrollDebounceTimer);
         }
 
         const debounceTime =
           plugin.flashScheduler.getScrollDebounceTime(scrollDelta);
-        plugin.scrollDebounceTimer = window.setTimeout(() => {
+        plugin.scrollDebounceTimer = win.setTimeout(() => {
           if (Date.now() - plugin.lastKeyDownTime < RECENT_KEYDOWN_WINDOW_MS) {
             plugin.scrollDebounceTimer = null;
             return;
@@ -2391,16 +2432,19 @@ export default class VisibleCursorPlugin extends Plugin {
 
     if (!this.flashScheduler.canScheduleFlash(trigger, state)) return;
 
+    const activeLeaf = this.getActiveLeafInFocusedWindow();
+    const win = (activeLeaf ? getWindowForLeaf(activeLeaf) : null) ?? getMainWindow(this.app) ?? window;
+
     this.lastViewChange = state.now;
     if (this.flashTimeout) {
-      window.clearTimeout(this.flashTimeout);
+      win.clearTimeout(this.flashTimeout);
     }
 
     this.pendingFlashTrigger = trigger;
     this.flashTimeout = this.flashScheduler.scheduleCallback(() => {
       this.showFlash();
       this.pendingFlashTrigger = null;
-    }, 50);
+    }, 50, win);
   }
 
   /**
@@ -2420,37 +2464,11 @@ export default class VisibleCursorPlugin extends Plugin {
   }
 
   /**
-   * Get the active leaf in the currently focused window. Falls back to
-   * app.workspace.activeLeaf when the focused window cannot be determined.
-   *
-   * This mirrors the canonical window/tab-group model from next-tab-group,
-   * which correctly identifies which editor surface actually has focus in
-   * multi-pane/multi-window Obsidian workspaces.
+   * Get the active leaf in the currently focused window. Delegated to
+   * commons/workspace getActiveLeafInFocusedWindow.
    */
-  private getActiveLeafInFocusedWindow(): WorkspaceLeaf | null {
-    const globalActive = this.app.workspace.activeLeaf;
-
-    if (typeof activeWindow === "undefined") {
-      return globalActive;
-    }
-
-    if (globalActive) {
-      const container = globalActive.getContainer();
-      if (container && container.win === activeWindow) {
-        return globalActive;
-      }
-    }
-
-    let leafInFocusedWindow: WorkspaceLeaf | null = null;
-    this.app.workspace.iterateAllLeaves((leaf) => {
-      if (leafInFocusedWindow) return;
-      const container = leaf.getContainer();
-      if (container && container.win === activeWindow) {
-        leafInFocusedWindow = leaf;
-      }
-    });
-
-    return leafInFocusedWindow ?? globalActive;
+  getActiveLeafInFocusedWindow(): WorkspaceLeaf | null {
+    return getActiveLeafInFocusedWindowCommons(this.app);
   }
 
   /**
@@ -2483,8 +2501,10 @@ export default class VisibleCursorPlugin extends Plugin {
     const editorView = this.getCMView(leaf.view);
     if (!editorView) return;
 
+    const win = (editorView?.dom ? ownerWindow(editorView.dom) : null) ?? (leaf ? getWindowForLeaf(leaf) : null) ?? window;
+
     if (this.scrollDebounceTimer) {
-      window.clearTimeout(this.scrollDebounceTimer);
+      win.clearTimeout(this.scrollDebounceTimer);
       this.scrollDebounceTimer = null;
     }
 
@@ -2500,13 +2520,13 @@ export default class VisibleCursorPlugin extends Plugin {
     this.refreshDecorations();
 
     if (this.resetFlashTimeout) {
-      window.clearTimeout(this.resetFlashTimeout);
+      win.clearTimeout(this.resetFlashTimeout);
     }
 
     this.resetFlashTimeout = this.flashScheduler.scheduleReset(() => {
       this.flashActive = false;
       this.refreshDecorations();
-    }, this.settings.flashDuration);
+    }, this.settings.flashDuration, win);
   }
 
   /** Check if the cursor is within the visible bounds of the scroll viewport */
@@ -2897,22 +2917,11 @@ export default class VisibleCursorPlugin extends Plugin {
   }
 
   onunload() {
-    if (this.flashTimeout) window.clearTimeout(this.flashTimeout);
-    if (this.resetFlashTimeout) window.clearTimeout(this.resetFlashTimeout);
-    if (this.scrollDebounceTimer) window.clearTimeout(this.scrollDebounceTimer);
-    if (this.repeatEndTimer) window.clearTimeout(this.repeatEndTimer);
-    window.removeEventListener("pointerdown", this.boundStartFence, {
-      capture: true,
-    });
-    window.removeEventListener("pointerup", this.boundEndFenceSoon, {
-      capture: true,
-    });
-    window.removeEventListener("pointercancel", this.boundEndFenceSoon, {
-      capture: true,
-    });
-    window.removeEventListener("click", this.boundClickEndFence, {
-      capture: true,
-    });
+    const win = getMainWindow(this.app) ?? window;
+    if (this.flashTimeout) win.clearTimeout(this.flashTimeout);
+    if (this.resetFlashTimeout) win.clearTimeout(this.resetFlashTimeout);
+    if (this.scrollDebounceTimer) win.clearTimeout(this.scrollDebounceTimer);
+    if (this.repeatEndTimer) win.clearTimeout(this.repeatEndTimer);
 
     // Remove hide-caret and hide-default classes from all active editors when unloading the plugin
     this.app.workspace.iterateAllLeaves((leaf) => {

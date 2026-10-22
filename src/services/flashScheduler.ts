@@ -69,8 +69,9 @@ export class FlashScheduler {
    * @param delayMs - Milliseconds to wait
    * @returns Timeout ID for cancellation
    */
-  scheduleCallback(callback: () => void, delayMs: number): number {
-    return window.setTimeout(callback, delayMs);
+  scheduleCallback(callback: () => void, delayMs: number, win?: Window): number {
+    const targetWin = win ?? activeWindow ?? window;
+    return targetWin.setTimeout(callback, delayMs) as unknown as number;
   }
 
   /**
@@ -79,9 +80,11 @@ export class FlashScheduler {
    *
    * @param callback - Function to call when timer fires
    * @param delayMs - Milliseconds to keep flash visible
+   * @param win - Optional window owning the timer (defaults to current window)
    * @returns Timeout ID for cancellation
    */
-  scheduleReset(callback: () => void, delayMs: number): number {
-    return window.setTimeout(callback, delayMs);
+  scheduleReset(callback: () => void, delayMs: number, win?: Window): number {
+    const targetWin = win ?? activeWindow ?? window;
+    return targetWin.setTimeout(callback, delayMs) as unknown as number;
   }
 }
