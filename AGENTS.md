@@ -13,7 +13,6 @@ tests; the rules below are the plugin-specific ones that remain.
 
 Window resolution (`getWindowForLeaf`, `getMainWindow`), focused leaf resolution (`getActiveLeafInFocusedWindow`), multi-window DOM event hooking (`forEachWindow`), and owner-window timers/frames (`setTimeoutIn`, `requestFrameIn`) are now owned and tested by `commons`. Migration status: `obsidian-commons/docs/CHECKLIST.md` Phase 3.
 
-
 ## Critical: Do not remove the "select.steadyLinks" / "select.programmatic" ignore in navCorrection
 
 `navCorrection` (in `createBlockCursorNavFilter()`) early-returns when any
@@ -250,15 +249,3 @@ If `isRightCellRenderable` is false (as is always the case at the trailing edge 
 The `../main` import in `tests/homeNavigation.test.ts` resolves to `main.ts`
 via the Vitest alias in `vitest.config.mts`.  Do NOT change this import to
 `../main.ts` (breaks `tsc`) or `../main.js` (breaks Vitest aliasing).
-
-## Note: worktree builds (Agent Manager) and the vault junction
-
-Visible Cursor also ships a pre-built `main.js` that the vault loads via a
-junction at `<vault>/.obsidian/plugins/visible-cursor` pointing to the main
-checkout, so builds inside a git worktree are not automatically visible.
-
-For the workflow and the shared relink script, see the global rule in
-`~/.config/kilo/AGENTS.md` under *When building an Obsidian plugin inside a
-git worktree*.  The script at `$env:USERPROFILE\.config\kilo\tools\obsidian-relink.ps1`
-re-points the vault junction in one command; do not ask the user to do
-the delete/re-create manually.
