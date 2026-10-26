@@ -119,6 +119,9 @@ If Obsidian exposes an equivalent public API in the future, this plugin should s
 - Updates automatically when theme changes
 - Turn off for manual light/dark control
 
+## Acknowledgements
+- The [Emacs beacon package](https://github.com/Malabarba/beacon) that showed me the way.
+
 ## What's New in v1.0.15
 
 - **On navigation repeat end setting**: Toggle to trigger a flash after holding down movement keys (arrows, Vim, Emacs repeats) if a large cursor movement occurred.
