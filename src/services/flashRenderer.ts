@@ -1,3 +1,5 @@
+import { ownerWindow, setTimeoutIn } from "commons/windows";
+
 /**
  * Service for rendering flash effects
  * Consolidates all three flash rendering modes (left, right, centered)
@@ -45,8 +47,8 @@ export class FlashRenderer {
     }
 
     // Fallback cleanup timeout at animation duration
-    const win = (parent as any)?.ownerDocument?.defaultView ?? activeWindow ?? window;
-    win.setTimeout(cleanup, duration);
+    const win = ownerWindow(parent) ?? activeWindow ?? window;
+    setTimeoutIn(win, cleanup, duration);
   }
 
   /**
@@ -64,22 +66,18 @@ export class FlashRenderer {
   ): string {
     const colorStop = `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${opacity})`;
 
-    return `
-      position: ${positionMode};
-      left: ${position.left}px;
-      top: ${position.top}px;
-      width: ${size.width}px;
-      height: ${size.height}px;
-      background: linear-gradient(to right,
+    return this.buildGradientCSS(
+      position,
+      size,
+      `linear-gradient(to right,
         ${colorStop} 0%,
         rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${opacity * 0.5}) ${highlightPercent * 0.5}%,
         rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0) ${highlightPercent}%,
         rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0) 100%
-      );
-      pointer-events: none;
-      z-index: 1;
-      animation: flash-line-fade ${duration}ms ease-out forwards;
-    `;
+      )`,
+      duration,
+      positionMode,
+    );
   }
 
   /**
@@ -97,22 +95,18 @@ export class FlashRenderer {
   ): string {
     const colorStop = `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${opacity})`;
 
-    return `
-      position: ${positionMode};
-      left: ${position.left}px;
-      top: ${position.top}px;
-      width: ${size.width}px;
-      height: ${size.height}px;
-      background: linear-gradient(to left,
+    return this.buildGradientCSS(
+      position,
+      size,
+      `linear-gradient(to left,
         ${colorStop} 0%,
         rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${opacity * 0.5}) ${highlightPercent * 0.5}%,
         rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0) ${highlightPercent}%,
         rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0) 100%
-      );
-      pointer-events: none;
-      z-index: 1;
-      animation: flash-line-fade ${duration}ms ease-out forwards;
-    `;
+      )`,
+      duration,
+      positionMode,
+    );
   }
 
   /**
@@ -134,13 +128,10 @@ export class FlashRenderer {
     const leftEdge = Math.max(0, cursorPercent - spreadPercent);
     const rightEdge = Math.min(100, cursorPercent + spreadPercent);
 
-    return `
-      position: ${positionMode};
-      left: ${position.left}px;
-      top: ${position.top}px;
-      width: ${size.width}px;
-      height: ${size.height}px;
-      background: linear-gradient(to right,
+    return this.buildGradientCSS(
+      position,
+      size,
+      `linear-gradient(to right,
         transparent 0%,
         transparent ${leftEdge}%,
         rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${fadeOpacity}) ${(leftEdge + cursorPercent) / 2}%,
@@ -148,7 +139,26 @@ export class FlashRenderer {
         rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${fadeOpacity}) ${(cursorPercent + rightEdge) / 2}%,
         transparent ${rightEdge}%,
         transparent 100%
-      );
+      )`,
+      duration,
+      positionMode,
+    );
+  }
+
+  private buildGradientCSS(
+    position: { left: number; top: number },
+    size: { width: number; height: number },
+    gradient: string,
+    duration: number,
+    positionMode: 'fixed' | 'absolute',
+  ): string {
+    return `
+      position: ${positionMode};
+      left: ${position.left}px;
+      top: ${position.top}px;
+      width: ${size.width}px;
+      height: ${size.height}px;
+      background: ${gradient};
       pointer-events: none;
       z-index: 1;
       animation: flash-line-fade ${duration}ms ease-out forwards;
