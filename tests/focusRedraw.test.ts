@@ -38,7 +38,7 @@ function makeViewPlugin() {
 	};
 	const viewPlugin = new CustomCursorViewPlugin(mockView as never, plugin);
 	mockView.requestMeasure.mockClear();
-	return { viewPlugin, mockView };
+	return { viewPlugin, mockView, plugin };
 }
 
 function makeUpdate(mockView: unknown, flags: Record<string, boolean>) {
@@ -67,5 +67,31 @@ describe('CustomCursorViewPlugin.update focus handling', () => {
 		const { viewPlugin, mockView } = makeViewPlugin();
 		viewPlugin.update(makeUpdate(mockView, {}) as never);
 		expect(mockView.requestMeasure).not.toHaveBeenCalled();
+	});
+});
+
+describe('CustomCursorViewPlugin block outline', () => {
+	it('clears the block outline when switching to either bar style', () => {
+		const { viewPlugin, plugin } = makeViewPlugin();
+		const request = viewPlugin['buildMeasureReq']();
+		const measure = {
+			top: 10, left: 20, width: 10, height: 20,
+			color: '#d8ccff', char: 'w', contrastColor: '#222222',
+			fontStyle: 'normal', fontWeight: '400', fontSize: '16px', fontFamily: 'monospace',
+		};
+		for (const barStyle of ['bar', 'thinbar'] as const) {
+			plugin.settings.customCursorStyle = 'block';
+			request.write(measure);
+			const cursor = viewPlugin['cursorEl'];
+			if (!cursor) throw new Error('Cursor not rendered');
+			// Simulate an adaptive outline from the DOM sampling pass.
+			cursor.style.outline = '1px solid #000000';
+			cursor.style.outlineOffset = '0';
+			expect(cursor?.style.width).toBe('10px');
+			plugin.settings.customCursorStyle = barStyle;
+			request.write(measure);
+			expect(cursor?.style.outline).toBe('');
+			expect(cursor?.style.outlineOffset).toBe('');
+		}
 	});
 });

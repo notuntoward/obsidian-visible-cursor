@@ -5,6 +5,20 @@ import { getPreciseCursorCoords } from '../main';
 import VisibleCursorPlugin from '../main';
 import * as workspaceCommons from 'commons/workspace';
 import * as windowsCommons from 'commons/windows';
+import { readFileSync } from 'node:fs';
+
+describe('adaptive outline window guardrails', () => {
+  it('uses only owner-document APIs in the new sampling path and keeps the calculation DOM-free', () => {
+    const main = readFileSync(new URL('../main.ts', import.meta.url), 'utf8');
+    const sampling = main.slice(main.indexOf('  private scheduleOutline()'), main.indexOf('  update(update: ViewUpdate)'));
+    const math = readFileSync(new URL('../src/services/adaptiveOutline.ts', import.meta.url), 'utf8');
+    const stripComments = (source: string) => source.replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, '');
+    expect(sampling).toContain('cursor.ownerDocument');
+    expect(stripComments(sampling)).not.toMatch(/(^|[^\w.])(?:document|window|navigator|localStorage)\s*[.([]/);
+    expect(stripComments(math)).not.toMatch(/\b(?:document|window|navigator|localStorage|obsidian)\b/);
+    expect(sampling).not.toContain('setInterval');
+  });
+});
 
 describe('commons adoption: color parser enhancements', () => {
   it('converts 3-digit hex colors to RGB', () => {

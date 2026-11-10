@@ -49,6 +49,195 @@ test('block cursor has reasonable width on normal text', async ({ page }) => {
 	expect((result.rect as HarnessRect).width).toBeGreaterThanOrEqual(result.defaultWidth * 0.5);
 });
 
+for (const theme of ['light', 'dark']) {
+	test(`adaptive outline follows local contrast in ${theme} mode without resizing the cursor`, async ({ page }) => {
+		await page.evaluate(theme => {
+			document.body.className = `theme-${theme}`;
+			document.body.style.setProperty('--background-primary', theme === 'light' ? '#ffffff' : '#202020');
+			document.body.style.setProperty('--interactive-accent', theme === 'light' ? '#7755ee' : '#aa99ee');
+			window.__visibleCursorHarness?.setDoc('==🟣Search needs a lot of work==', 26);
+			const editor = document.querySelector<HTMLElement>('.cm-editor')!;
+			editor.style.backgroundColor = 'var(--background-primary)';
+		}, theme);
+		const cursor = page.locator('.visible-cursor-element');
+		await expect(cursor).toHaveText('w');
+		await expect(cursor).toHaveCSS('outline-style', 'none');
+		const originalBox = await cursor.boundingBox();
+		const fill = await cursor.evaluate(el => getComputedStyle(el).backgroundColor);
+		await page.locator('.cm-line').evaluate((el, color) => {
+			(el as HTMLElement).style.backgroundColor = color;
+		}, fill);
+		await expect(cursor).toHaveCSS('outline-style', 'solid');
+		await expect(cursor).toHaveCSS('outline-width', '1px');
+		await expect(cursor).toHaveCSS('outline-offset', '0px');
+		expect(await cursor.boundingBox()).toEqual(originalBox);
+		await expect(cursor).toHaveCSS('background-color', fill);
+
+		// Moving to an unhighlighted line must clear the outline immediately.
+		await page.evaluate(() => {
+			const h = window.__visibleCursorHarness!;
+			h.setDoc('highlight\nplain', 0);
+			document.querySelector<HTMLElement>('.cm-editor')!.style.backgroundColor = 'var(--background-primary)';
+		});
+		await expect(cursor).toHaveCSS('outline-style', 'none');
+		// Stationary background edits must also toggle the outline.
+		const newFill = await cursor.evaluate(el => getComputedStyle(el).backgroundColor);
+		await page.locator('.cm-line').first().evaluate((el, color) => {
+			(el as HTMLElement).style.backgroundColor = color;
+		}, newFill);
+		await expect(cursor).toHaveCSS('outline-style', 'solid');
+		await page.evaluate(() => window.__visibleCursorHarness!.setCursor(10));
+		await expect(cursor).toHaveText('p');
+		await expect(cursor).toHaveCSS('outline-style', 'none');
+	});
+}
+
+test('adaptive outline composites nested transparent layers and clears after their removal', async ({ page }) => {
+	await page.evaluate(() => {
+		document.body.style.setProperty('--background-primary', '#ffffff');
+		document.body.style.setProperty('--interactive-accent', '#000000');
+		document.body.className = 'theme-light';
+		window.__visibleCursorHarness!.setDoc('highlight', 0);
+		document.querySelector<HTMLElement>('.cm-editor')!.style.backgroundColor = '#ffffff';
+	});
+	const cursor = page.locator('.visible-cursor-element');
+	await expect(cursor).toHaveCSS('outline-style', 'none');
+	// Light-mode fill is 70% white (179). Two 16% black layers over white give ~180.
+	await page.locator('.cm-content').evaluate(el => {
+		(el as HTMLElement).style.backgroundColor = 'rgba(0, 0, 0, 0.16)';
+	});
+	await page.locator('.cm-line').evaluate(el => {
+		(el as HTMLElement).style.backgroundColor = 'rgba(0, 0, 0, 0.16)';
+	});
+	await expect(cursor).toHaveCSS('outline-style', 'solid');
+	await page.locator('.cm-content, .cm-line').evaluateAll(elements => {
+		for (const el of elements) (el as HTMLElement).style.backgroundColor = '';
+	});
+	await expect(cursor).toHaveCSS('outline-style', 'none');
+});
+
+test('adaptive outline follows inline highlights, including pointer-events:none, and remains block-only', async ({ page }) => {
+	await page.evaluate(() => {
+		document.body.style.setProperty('--background-primary', '#ffffff');
+		const h = window.__visibleCursorHarness!;
+		h.setDoc('plain highlighted plain', 0);
+		document.querySelector<HTMLElement>('.cm-editor')!.style.backgroundColor = '#ffffff';
+		h.setCursorAppearance('block', '#d8ccff');
+		h.setHighlight(6, 17, '#d8ccff', 'none');
+	});
+	const cursor = page.locator('.visible-cursor-element');
+	await expect(cursor).toHaveCSS('outline-style', 'none');
+	await page.evaluate(() => window.__visibleCursorHarness!.setCursor(6));
+	await expect(cursor).toHaveText('h');
+	await expect(cursor).toHaveCSS('outline-style', 'solid');
+	await expect(cursor).toHaveCSS('outline-color', 'rgb(0, 0, 0)');
+	for (const style of ['bar', 'thinbar'] as const) {
+		await page.evaluate(style => window.__visibleCursorHarness!.setCursorAppearance(style), style);
+		await expect(cursor).toHaveCSS('outline-style', 'none');
+		await page.evaluate(() => window.__visibleCursorHarness!.setCursorAppearance('block'));
+		await expect(cursor).toHaveCSS('outline-style', 'solid');
+	}
+	await page.evaluate(() => window.__visibleCursorHarness!.setCursor(18));
+	await expect(cursor).toHaveCSS('outline-style', 'none');
+});
+
+test('adaptive outline uses a translucent computed cursor fill and logs colors without note contents', async ({ page }) => {
+	const diagnostics: string[] = [];
+	page.on('console', msg => {
+		if (msg.text().includes('[visible-cursor:adaptive-outline]')) diagnostics.push(msg.text());
+	});
+	await page.evaluate(() => {
+		document.body.style.setProperty('--background-primary', '#000000');
+		const h = window.__visibleCursorHarness!;
+		h.setDoc('private note text', 0);
+		document.querySelector<HTMLElement>('.cm-editor')!.style.backgroundColor = '#000000';
+		h.setCursorAppearance('block', 'rgba(255,255,255,0.5)');
+		h.setOutlineDebug(true);
+		h.setHighlight(0, 17, '#ffffff');
+	});
+	const cursor = page.locator('.visible-cursor-element');
+	await expect(cursor).toHaveCSS('outline-style', 'solid');
+	await expect(cursor).toHaveCSS('outline-color', 'rgb(0, 0, 0)');
+	expect(diagnostics.length).toBeGreaterThan(0);
+	expect(diagnostics.join()).toContain('baseline');
+	expect(diagnostics.join()).toContain('underBg');
+	expect(diagnostics.join()).toContain('cm-highlight');
+	expect(diagnostics.join()).not.toContain('private note text');
+});
+
+test('adaptive outline responds to stylesheet changes through theme invalidation without moving', async ({ page }) => {
+	await page.evaluate(() => {
+		document.body.style.setProperty('--background-primary', '#ffffff');
+		const h = window.__visibleCursorHarness!;
+		h.setDoc('highlight', 0);
+		h.setCursorAppearance('block', '#d8ccff');
+		document.querySelector<HTMLElement>('.cm-editor')!.style.backgroundColor = 'var(--background-primary)';
+		const sheet = document.createElement('style');
+		sheet.id = 'adaptive-test-theme';
+		sheet.textContent = '.cm-line { background-color: #d8ccff; }';
+		document.head.appendChild(sheet);
+	});
+	const cursor = page.locator('.visible-cursor-element');
+	await expect(cursor).toHaveCSS('outline-style', 'solid');
+	await page.evaluate(() => {
+		document.getElementById('adaptive-test-theme')!.textContent = '.cm-line { background-color: white; }';
+		window.__visibleCursorHarness!.invalidateTheme();
+	});
+	await expect(cursor).toHaveCSS('outline-style', 'none');
+});
+
+test('adaptive outline samples the cursor owner document after moving to another window root', async ({ page }) => {
+	await page.evaluate(() => {
+		const h = window.__visibleCursorHarness!;
+		h.setDoc('highlight', 0);
+		h.setCursorAppearance('block', '#d8ccff');
+		document.body.style.setProperty('--background-primary', '#ffffff');
+		const frame = document.createElement('iframe');
+		frame.id = 'cursor-owner-window';
+		frame.style.cssText = 'width:800px;height:300px';
+		document.body.appendChild(frame);
+		const doc = frame.contentDocument!;
+		doc.body.style.setProperty('--background-primary', '#d8ccff');
+		doc.body.style.backgroundColor = '#d8ccff';
+		const view = h.getView() as import('@codemirror/view').EditorView;
+		doc.body.appendChild(doc.adoptNode(view.dom));
+		view.setRoot(doc);
+		view.dom.style.backgroundColor = 'var(--background-primary)';
+		view.focus();
+	});
+	const cursor = page.frameLocator('#cursor-owner-window').locator('.visible-cursor-element');
+	await expect(cursor).toHaveCSS('outline-style', 'none');
+	await page.evaluate(() => {
+		const doc = document.querySelector<HTMLIFrameElement>('#cursor-owner-window')!.contentDocument!;
+		doc.body.style.setProperty('--background-primary', '#000000');
+		window.__visibleCursorHarness!.setHighlight(0, 9, '#d8ccff');
+		window.__visibleCursorHarness!.invalidateTheme();
+	});
+	await expect(cursor).toHaveCSS('outline-style', 'solid');
+});
+
+test('adaptive outline sampling settles without polling or observing its own style writes', async ({ page }) => {
+	const result = await page.evaluate(async () => {
+		const original = document.elementsFromPoint.bind(document);
+		let calls = 0;
+		document.elementsFromPoint = (x, y) => {
+			calls++;
+			return original(x, y);
+		};
+		try {
+			window.__visibleCursorHarness!.setCursor(1);
+			await new Promise(resolve => setTimeout(resolve, 250));
+			const settled = calls;
+			await new Promise(resolve => setTimeout(resolve, 150));
+			return { settled, calls };
+		} finally {
+			document.elementsFromPoint = original;
+		}
+	});
+	expect(result.settled).toBeGreaterThan(0);
+	expect(result.calls).toBe(result.settled);
+});
+
 test('cursor can be placed inside wikilink alias text', async ({ page }) => {
 	const result = await page.evaluate(() => {
 		const harness = window.__visibleCursorHarness;
@@ -761,8 +950,3 @@ test('block cursor on last character of link followed by trailing text does not 
 	expect(Math.abs(result.rect!.top - result.prevTop!)).toBeLessThan(1.5);
 	expect(Math.abs(result.rect!.height - result.normalHeight!)).toBeLessThan(1.5);
 });
-
-
-
-
-

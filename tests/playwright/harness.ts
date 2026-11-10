@@ -1,5 +1,5 @@
-import { EditorSelection, EditorState, Transaction } from '@codemirror/state';
-import { EditorView, ViewPlugin, drawSelection } from '@codemirror/view';
+import { EditorSelection, EditorState, StateEffect, Transaction } from '@codemirror/state';
+import { Decoration, EditorView, ViewPlugin, drawSelection } from '@codemirror/view';
 import type { Extension } from '@codemirror/state';
 import VisibleCursorPlugin, { CustomCursorViewPlugin } from '../../main';
 import { DEFAULT_SETTINGS, type VisibleCursorPluginSettings } from '../../settings';
@@ -38,6 +38,8 @@ function createPluginStub() {
 		lastKeyDownTime: 0,
 		lastUserEvent: '',
 		debugCursorDiagnostics: false,
+		debugAdaptiveOutline: false,
+		outlineThemeVersion: 0,
 		flashActive: true,
 		isComposing: false,
 		blockWrapState: null as null | { logicalPos: number; showPos: number; assoc: 1 | -1 },
@@ -97,6 +99,33 @@ const harness: VisibleCursorHarness = {
 			scrollIntoView: true
 		});
 		view.focus();
+	},
+	setHighlight(from, to, background, pointerEvents = 'auto') {
+		view.dispatch({
+			effects: StateEffect.appendConfig.of(EditorView.decorations.of(Decoration.set([
+				Decoration.mark({
+					class: 'cm-highlight',
+					attributes: { style: `background-color: ${background}; pointer-events: ${pointerEvents}` },
+				}).range(from, to),
+			]))),
+		});
+	},
+	setCursorAppearance(style, fill) {
+		pluginStub.settings.customCursorStyle = style;
+		if (fill) {
+			pluginStub.settings.useThemeColors = false;
+			pluginStub.settings.cursorCustomColorLight = fill;
+			pluginStub.settings.cursorCustomColorDark = fill;
+		}
+		view.dispatch({ selection: view.state.selection });
+	},
+	invalidateTheme() {
+		pluginStub.colorProvider.clearCache();
+		pluginStub.outlineThemeVersion++;
+		view.dispatch({ selection: view.state.selection });
+	},
+	setOutlineDebug(enabled) {
+		pluginStub.debugAdaptiveOutline = enabled;
 	},
 	setCursorWithAssoc(pos: number, assoc: number) {
 		view.dispatch({

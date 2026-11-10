@@ -6,7 +6,10 @@ import {
   DEFAULT_SETTINGS,
   VisibleCursorSettingTab,
 } from "./settings";
-import { migrateSettings, isEditorTextClick } from "./src/utils";
+import { migrateSettings, isEditorTextClick, type RGB } from "./src/utils";
+import {
+  adaptiveOutline, composite, compositeLayers, parseRgba, type RGBA,
+} from "./src/services/adaptiveOutline";
 import {
   getActiveLeafInFocusedWindow as getActiveLeafInFocusedWindowCommons,
   getWindowForLeaf,
@@ -213,6 +216,13 @@ export class CustomCursorViewPlugin {
   private lastCursorViewportLeft: number | null = null;
   private lastCursorDocPos: number | null = null;
   private docChangedInUpdate = false;
+  private outlineVisible = false;
+  private cancelOutlineFrame: (() => void) | null = null;
+  private outlineObserver: MutationObserver | null = null;
+  private editorBackground: RGB | null = null;
+  private outlineThemeVersion = -1;
+  private outlineErrorReported = false;
+  private lastOutlineDiagnostic = "";
 
   constructor(view: EditorView, plugin: VisibleCursorPlugin) {
     this.view = view;
@@ -225,7 +235,167 @@ export class CustomCursorViewPlugin {
       "position: absolute; top: 0; left: 0; pointer-events: none; overflow: visible;";
     view.scrollDOM.appendChild(this.cursorLayer);
 
+    const win = view.dom?.ownerDocument?.defaultView;
+    if (win) {
+      this.outlineObserver = new win.MutationObserver(records => {
+        const externalChange = records.some(record => {
+          if (this.cursorLayer.contains(record.target)) return false;
+          if (record.type === "attributes" && record.attributeName === "class") {
+            const clean = (value: string | null) =>
+              (value ?? "").split(/\s+/).filter(c => c && !c.startsWith("visible-cursor-hide-")).sort().join(" ");
+            if (clean(record.oldValue) === clean((record.target as Element).getAttribute("class"))) return false;
+          }
+          return true;
+        });
+        if (externalChange) {
+          this.editorBackground = null;
+          this.scheduleOutline();
+        }
+      });
+      this.outlineObserver.observe(view.scrollDOM, {
+        subtree: true, childList: true, characterData: true,
+        attributes: true, attributeOldValue: true, attributeFilter: ["style", "class"],
+      });
+      for (let el = view.scrollDOM.parentElement; el; el = el.parentElement) {
+        this.outlineObserver.observe(el, {
+          attributes: true, attributeOldValue: true, attributeFilter: ["style", "class"],
+        });
+      }
+    }
     view.requestMeasure(this.buildMeasureReq());
+  }
+
+  private clearOutline() {
+    this.outlineVisible = false;
+    if (this.cursorEl) {
+      this.cursorEl.style.outline = "";
+      this.cursorEl.style.outlineOffset = "";
+    }
+  }
+
+  private scheduleOutline() {
+    const win = this.view.dom?.ownerDocument?.defaultView;
+    if (!win || this.cancelOutlineFrame) return;
+    this.cancelOutlineFrame = requestFrameIn(win, () => {
+      this.cancelOutlineFrame = null;
+      this.view.requestMeasure({
+        read: () => {
+          try {
+            return this.measureOutline();
+          } catch (error) {
+            if (!this.outlineErrorReported) {
+              console.warn("[visible-cursor] Adaptive outline sampling failed", error);
+              this.outlineErrorReported = true;
+            }
+            return null;
+          }
+        },
+        write: result => {
+          if (!result || this.plugin.settings.customCursorStyle !== "block") {
+            this.clearOutline();
+            return;
+          }
+          this.outlineVisible = result.visible;
+          if (this.cursorEl) {
+            this.cursorEl.style.outline = result.visible ? `1px solid ${result.color}` : "";
+            this.cursorEl.style.outlineOffset = result.visible ? "0" : "";
+          }
+        },
+      });
+    });
+  }
+
+  private measureOutline() {
+    const cursor = this.cursorEl;
+    if (!cursor || this.plugin.settings.customCursorStyle !== "block" ||
+        this.cursorLayer.style.display === "none" || !this.view.hasFocus) return null;
+    const doc = cursor.ownerDocument;
+    const win = doc.defaultView;
+    if (!win) return null;
+    const readColor = (value: string): RGBA => {
+      const parsed = parseRgba(value);
+      if (parsed) return parsed;
+      // Chromium can retain color(), oklch(), etc. in computed styles.
+      if (!win.CSS.supports("color", value)) throw new Error(`Unsupported computed color: ${value}`);
+      const canvas = doc.createElement("canvas");
+      canvas.width = canvas.height = 1;
+      const context = canvas.getContext("2d", { willReadFrequently: true });
+      if (!context) throw new Error("Cannot resolve computed color without a canvas context");
+      context.fillStyle = value;
+      context.fillRect(0, 0, 1, 1);
+      const [r, g, b, a] = context.getImageData(0, 0, 1, 1).data;
+      return [r, g, b, a / 255];
+    };
+    if (this.outlineThemeVersion !== this.plugin.outlineThemeVersion) {
+      this.editorBackground = null;
+      this.outlineThemeVersion = this.plugin.outlineThemeVersion;
+    }
+    if (!this.editorBackground) {
+      const bodyStyle = win.getComputedStyle(doc.body);
+      const probe = doc.createElement("span");
+      probe.style.backgroundColor = bodyStyle.getPropertyValue("--background-primary").trim() || bodyStyle.backgroundColor;
+      this.cursorLayer.appendChild(probe);
+      try {
+        const background = readColor(win.getComputedStyle(probe).backgroundColor);
+        this.editorBackground = composite(background, composite(readColor(bodyStyle.backgroundColor), [255, 255, 255]));
+      } finally {
+        probe.remove();
+      }
+    }
+    const editorBg = this.editorBackground;
+    const fill = readColor(win.getComputedStyle(cursor).backgroundColor);
+    const rect = cursor.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return null;
+    const diagnostics: Array<{ underBg: RGB; layers: Array<{ tag: string; classes: string; color: string }> }> = [];
+    const backgrounds = [0.1, 0.5, 0.9].map(fraction => {
+      const x = rect.left + rect.width * fraction;
+      const y = rect.top + rect.height / 2;
+      const elements = doc.elementsFromPoint(x, y).filter(el =>
+        !this.cursorLayer.contains(el) &&
+        (this.view.scrollDOM.contains(el) || el.contains(this.view.scrollDOM)));
+      // domAtPos also finds pointer-events:none highlight spans omitted by hit testing.
+      const pos = this.view.posAtCoords({ x, y });
+      if (pos !== null) {
+        const info = this.view.domAtPos(pos);
+        let node: Node | null = info.node;
+        if (node.nodeType === 1) node = node.childNodes[info.offset] ?? node;
+        let el = node.nodeType === 1 ? node as Element : node.parentElement;
+        const missing: Element[] = [];
+        while (el && !elements.includes(el)) {
+          if (Array.from(el.getClientRects()).some(r => x >= r.left && x <= r.right && y >= r.top && y <= r.bottom)) {
+            missing.push(el);
+          }
+          el = el.parentElement;
+        }
+        elements.splice(el ? elements.indexOf(el) : 0, 0, ...missing);
+      }
+      const layers: RGBA[] = [];
+      const details: Array<{ tag: string; classes: string; color: string }> = [];
+      for (const el of new Set(elements)) {
+        const style = win.getComputedStyle(el);
+        // This is background-color sampling, not pixel sampling: images/gradients,
+        // pseudo-elements, ancestor opacity and blend modes cannot be reconstructed.
+        if (style.backgroundImage !== "none") continue;
+        const color = readColor(style.backgroundColor);
+        if (color[3] === 0) continue;
+        layers.push(color);
+        details.push({ tag: el.tagName, classes: el.getAttribute("class") ?? "", color: style.backgroundColor });
+        if (color[3] >= 1) break;
+      }
+      const underBg = compositeLayers(layers, editorBg);
+      diagnostics.push({ underBg, layers: details });
+      return underBg;
+    });
+    const result = adaptiveOutline(fill, editorBg, backgrounds, this.outlineVisible);
+    if (this.plugin.debugAdaptiveOutline && result.local < result.threshold) {
+      const message = JSON.stringify({ local: result.local, baseline: result.baseline, threshold: result.threshold, samples: diagnostics });
+      if (message !== this.lastOutlineDiagnostic) console.debug("[visible-cursor:adaptive-outline]", message);
+      this.lastOutlineDiagnostic = message;
+    } else {
+      this.lastOutlineDiagnostic = "";
+    }
+    this.outlineErrorReported = false;
+    return result;
   }
 
   update(update: ViewUpdate) {
@@ -260,6 +430,10 @@ export class CustomCursorViewPlugin {
   }
 
   destroy() {
+    this.cancelOutlineFrame?.();
+    this.cancelOutlineFrame = null;
+    this.outlineObserver?.disconnect();
+    this.outlineObserver = null;
     this.cursorLayer.remove();
     if (this.view) {
       if (this.view.contentDOM) {
@@ -893,6 +1067,7 @@ export class CustomCursorViewPlugin {
       ) => {
         try {
         if (!measure) {
+          this.clearOutline();
           cursorLayer.style.display = "none";
           this.view.contentDOM?.classList.remove("visible-cursor-hide-caret");
           this.view.dom?.classList.remove("visible-cursor-hide-default");
@@ -958,6 +1133,8 @@ export class CustomCursorViewPlugin {
           el.style.lineHeight = measure.height + "px";
           el.style.setProperty("tab-size", "inherit");
         }
+        if (style === "block") this.scheduleOutline();
+        else this.clearOutline();
         } catch (err) {
           if (plugin.debugCursorDiagnostics) {
             console.error("[visible-cursor] Error in buildMeasureReq.write:", err);
@@ -1160,6 +1337,8 @@ export default class VisibleCursorPlugin extends Plugin {
   // where they need the pre-existing (non-default) behavior to be spelled
   // out; do not flip this back to true.
   debugCursorDiagnostics: boolean = false;
+  debugAdaptiveOutline = false;
+  outlineThemeVersion = 0;
 
   private lastViewChange: number = 0;
   private flashTimeout: number | null = null;
@@ -1239,6 +1418,7 @@ export default class VisibleCursorPlugin extends Plugin {
 
     this.registerEvent(
       this.app.workspace.on("css-change", () => {
+        this.outlineThemeVersion++;
         this.app.workspace.updateOptions();
         this.colorProvider.clearCache();
         const activeLeaf = this.getActiveLeafInFocusedWindow();

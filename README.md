@@ -78,8 +78,12 @@ If Obsidian exposes an equivalent public API in the future, this plugin should s
 - "Off" to disable (use Obsidian default)
 
 **Custom cursor style**
-- "Block" - Full character highlight
+- "Block" - Full character highlight; automatically adds a 1px black or white outline only where the cursor blends into the background
 - "Bar" - 3px wide cursor line
+
+The block outline is computed as you move or the editor's background styling changes, including semi-transparent highlights. Its trigger is calibrated against the cursor's contrast on the plain editor background, where no outline is shown. Hysteresis prevents flicker near the trigger; the outline does not change cursor size or text contrast. No setting is needed. Gradients, images, pseudo-elements, ancestor opacity and blending are not measured precisely.
+
+For development diagnostics, set `app.plugins.plugins['visible-cursor'].debugAdaptiveOutline = true` in the main Obsidian developer console. Low-contrast samples log `[visible-cursor:adaptive-outline]` with local/baseline ratios, background colors and layer tags/classes, not note text. Set it to `false` to stop; it resets on plugin reload. Plugin logs appear in the main console even when the editor is in a pop-out.
 
 ### Flash Effect
 
