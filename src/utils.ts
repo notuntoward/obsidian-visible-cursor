@@ -94,27 +94,32 @@ export function getRelativeLuminance(r: number, g: number, b: number): number {
 	const gsRGB = g / 255;
 	const bsRGB = b / 255;
 
-	const rLinear = rsRGB <= 0.03928 ? rsRGB / 12.92 : Math.pow((rsRGB + 0.055) / 1.055, 2.4);
-	const gLinear = gsRGB <= 0.03928 ? gsRGB / 12.92 : Math.pow((gsRGB + 0.055) / 1.055, 2.4);
-	const bLinear = bsRGB <= 0.03928 ? bsRGB / 12.92 : Math.pow((bsRGB + 0.055) / 1.055, 2.4);
+	const rLinear = rsRGB <= 0.04045 ? rsRGB / 12.92 : Math.pow((rsRGB + 0.055) / 1.055, 2.4);
+	const gLinear = gsRGB <= 0.04045 ? gsRGB / 12.92 : Math.pow((gsRGB + 0.055) / 1.055, 2.4);
+	const bLinear = bsRGB <= 0.04045 ? bsRGB / 12.92 : Math.pow((bsRGB + 0.055) / 1.055, 2.4);
 
-	return 0.2126 * rLinear + 0.7150 * gLinear + 0.0722 * bLinear;
+	return 0.2126 * rLinear + 0.7152 * gLinear + 0.0722 * bLinear;
 }
+
+export type RGB = readonly [number, number, number];
 
 /**
  * Calculate the contrast ratio between two colors according to WCAG
  */
-export function getContrastRatio(color1: string, color2: string): number {
-	const rgb1 = hexToRgb(color1);
-	const rgb2 = hexToRgb(color2);
-
-	const L1 = getRelativeLuminance(rgb1.r, rgb1.g, rgb1.b);
-	const L2 = getRelativeLuminance(rgb2.r, rgb2.g, rgb2.b);
+export function contrastRatio(a: RGB, b: RGB): number {
+	const L1 = getRelativeLuminance(...a);
+	const L2 = getRelativeLuminance(...b);
 
 	const lighter = Math.max(L1, L2);
 	const darker = Math.min(L1, L2);
 
 	return (lighter + 0.05) / (darker + 0.05);
+}
+
+export function getContrastRatio(color1: string, color2: string): number {
+	const a = hexToRgb(color1);
+	const b = hexToRgb(color2);
+	return contrastRatio([a.r, a.g, a.b], [b.r, b.g, b.b]);
 }
 
 
@@ -174,5 +179,4 @@ export function shouldAllowFlash(
 export function calculateScrollDebounceTime(scrollDelta: number): number {
 	return scrollDelta < 5 ? 250 : 150;
 }
-
 
