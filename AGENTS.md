@@ -1,251 +1,37 @@
 # Agent Instructions for obsidian-visible-cursor
 
+## Task scope and validation
+
+Cache exact instructions per checkout/task; read guides only for changed areas.
+Restore only missing/changed sections after compaction.
+- Docs/instructions-only: text/link/format checks, not application tests/builds,
+  browsers, installs or consumer sweeps. This qualifies completion gates below.
+- Publication-only: reuse green checks/artifacts for unchanged code, dependencies,
+  build inputs AND linked commons; validate unchecked pending source once.
+- Source changes: targeted iteration tests, required final checks once; reuse
+  composite steps and verify their bundle rather than rebundling.
+Keep fresh Git branch/identity/message/hook checks and final remote-tip verification.
+
 ## Shared library: commons
 
-This plugin uses `commons` (repo `obsidian-commons`, normally `C:\Users\scott\repos\obsidian-commons`).
-Window, tab group, tab, pop-out, window-focus and modal-chooser logic (and later color
-logic) comes from `commons/*`. Never reimplement it here and never read Obsidian's
-undocumented fields (`leaf.detached`, `container.win`, `rootSplit`, `tabHeaderEl`,
-`chooser.setSelectedItem`, ...) in this plugin. If commons lacks something or is wrong,
-change commons and tell the user: see the global rule "Obsidian shared library" and
-`obsidian-commons/AGENTS.md`. Rules that moved to commons are enforced by its guardrail
-tests; the rules below are the plugin-specific ones that remain.
+Use commons for workspace/window/tab/focus, per-window timers/clipboard, modal,
+search, geometry, page-color and line-flash helpers; never duplicate its
+undocumented Obsidian adapters in plugin code. For an owned-area change, consult
+the installed module exports and relevant commons guide sections. Change commons
+with a regression test if needed, never a local copy. Docs/publication-only work
+does not require opening the library or rebuilding its consumers.
+Local adoption uses file:../obsidian-commons; obey the library's existing
+commons-adoption branch and explicit-ref/tag-disabled publication rules.
 
-Window resolution (`getWindowForLeaf`, `getMainWindow`), focused leaf resolution (`getActiveLeafInFocusedWindow`), multi-window DOM event hooking (`forEachWindow`), and owner-window timers/frames (`setTimeoutIn`, `requestFrameIn`) are now owned and tested by `commons`. Migration status: `obsidian-commons/docs/CHECKLIST.md` Phase 3.
 
-## Critical: Do not remove the "select.steadyLinks" / "select.programmatic" ignore in navCorrection
+## Cursor/navigation safety
 
-`navCorrection` (in `createBlockCursorNavFilter()`) early-returns when any
-transaction in the update `isUserEvent("select.pointer")`,
-`isUserEvent("select.steadyLinks")`, or `isUserEvent("select.programmatic")`.
-This is the ONLY thing that stops this plugin's block-cursor wrap-correction
-logic from re-dispatching its own corrective selection change on top of a
-cursor-repositioning dispatch made BY the Steady Links plugin
-(`obsidian-steady-links`, `cursorCorrector` in `src/linkSyntaxHider.ts`).
-
-Steady Links' `cursorCorrector` explicitly tags every one of its own purely-
-corrective dispatches (the ones that snap the cursor onto/off of hidden link
-syntax) with `userEvent: "select.steadyLinks"` specifically so this plugin
-can recognize and ignore them. Without this check, the two plugins fight over
-the cursor position — most visibly with the block cursor style, since this is
-the only cursor style whose `navCorrection` logic dispatches selection
-changes on its own (bar/thinbar never do). This caused a real, very hard to
-reproduce bug: Emacs kill-line on a line-start wikilink at end of document
-leaving a stray one-character alias like `[[dest|S]]` instead of deleting the
-whole link, because the real CM6 selection had drifted one character into the
-alias by the time kill-line read it.
-
-### What NOT to do
-
-- Do NOT remove the `select.steadyLinks` (or `select.programmatic`) check
-  from `navCorrection`'s early-return, and do NOT assume it is dead just
-  because this plugin never emits either tag itself — they exist purely to
-  recognize dispatches from OTHER plugins (Steady Links, and potentially
-  others that adopt the same `select.programmatic` convention).
-- Do NOT remove the `guards test "ignores external programmatic selection
-  transactions like select.steadyLinks"` in `tests/homeNavigation.test.ts`.
-- If Steady Links' own emission of `select.steadyLinks` ever changes name,
-  update this check to match — do not silently let the two plugins drift out
-  of sync (verify with `git log -S"select.steadyLinks"` in the Steady Links
-  repo that the emitting side still uses the exact same string).
-
-## Critical: Block cursor rendering on hidden link syntax positions
-
-When the Steady Links plugin is active with "keep links steady" enabled,
-vertical movement (ArrowUp/ArrowDown) onto a line that starts with a wikilink
-can leave the CM6 selection on a position inside hidden link syntax (e.g. the
-`[` characters of `[[`).  At these positions:
-
-- `coordsAtPos()` returns coordinates with ~1px width (collapsed syntax)
-- The source document character at that position is `[` or `]` (hidden)
-- Rendering that character inside the block cursor overlay produces a garbled
-  glyph on top of the visible alias text
-
-### The fix (in this plugin)
-
-`main.ts` contains a min-width fallback in `buildMeasureReq()` that detects
-when the measured character width is less than 50% of `defaultCharacterWidth`.
-When this triggers:
-
-1. It probes forward using `findNextRenderableCell()` to find the actual
-   visible character's width and uses that instead of `defaultCharacterWidth`
-2. It extracts the actual visible character and styling from `visibleCell`
-   (falling back to `' '` only if no visible cell is found) so the block cursor
-   renders the first visible character cleanly without blotting it out with an
-   empty block or rendering a garbled hidden-syntax glyph
-3. It snaps `coordsLeft = cellLeft.left`, `coordsTop = cellLeft.top`, and
-   `coordsBottom = cellLeft.bottom` to the visible cell's coordinates so the
-   block cursor overlay begins at the visible character, not at the collapsed
-   1px syntax anchor.
-
-## Critical: Default CodeMirror cursor suppression (`.cm-cursor` peeking out)
-
-CodeMirror 6 renders its default blinking cursor (`.cm-cursor`) inside
-`.cm-cursorLayer` independently of native CSS `caret-color`. When Steady Links
-collapses wikilink syntax, it places a 1px inline anchor widget immediately
-before the visible alias. When the cursor lands on collapsed syntax, CodeMirror
-positions `.cm-cursor` at that 1px anchor—just to the left of the visible alias.
-
-If `.cm-cursorLayer` is not suppressed, the default blinking cursor peeks out on
-the left edge of the custom block cursor.
-
-### Mandatory Cursor Suppression Invariants
-
-1. **Extension BaseTheme (`createCursorSuppressionTheme`)**:
-   Registered via `EditorView.baseTheme` in `registerEditorExtension`. Hides
-   `&.visible-cursor-hide-default .cm-cursorLayer, .cm-cursor, .cm-dropCursor`
-   (`display: none !important; opacity: 0 !important; visibility: hidden !important;`).
-   Using `baseTheme` ensures community themes and CSS snippets cannot override it.
-2. **Global CSS (`styles.css`)**:
-   Applies `.visible-cursor-hide-default .cm-cursorLayer` and
-   `.cm-editor:has(.visible-cursor-hide-caret) .cm-cursorLayer` rules as a
-   zero-delay defense before CM6 extensions mount.
-3. **DOM Class Lifecycle in `CustomCursorViewPlugin.write()`**:
-   When `measure` is active, adds `visible-cursor-hide-default` to `view.dom`
-   and `visible-cursor-hide-caret` to `view.contentDOM`. When `measure` is
-   null, on blur, destroy, or plugin unload, removes both classes so the
-   native editor cursor is cleanly restored.
-
-### The real fix (in Steady Links)
-
-The proper fix for vertical motion is in the Steady Links plugin's
-`cursorCorrector`.  After vertical motion, Obsidian normalises the cursor from
-`textFrom` (visible alias start) back to `leading.from` (hidden `[[` syntax).
-The Steady Links suppression logic redirects this back to `textFrom`.
-
-However, on HOME and Emacs `moveToBeginning`, Steady Links intentionally places
-the cursor at `span.leading.from` (column 0) so that line-kill commands
-(`kill-line`, etc.) operate on column 0.  In that case, the cursor sits on
-collapsed syntax at the line start, and this fallback cleanly renders the first
-visible alias character inside the block cursor overlay.
-
-### What NOT to do
-
-- Do NOT try to fix this by remapping `visualPos` to a different source
-  position in the measurement code.  That approach was tried 3 times and
-  each time it garbled the rendered character or broke the cursor position.
-- Do NOT remove the min-width fallback.  It is the safety net that prevents
-  garbled rendering or blotting out the first visible character.
-- Do NOT add code that detects whether Steady Links is installed.  The
-  plugin must work identically with and without Steady Links.
-- Do NOT remove `createCursorSuppressionTheme()`, `.visible-cursor-hide-default`,
-  or the `.cm-cursorLayer` rules in `styles.css`. Relying only on `caret-color:
-  transparent` does not suppress CodeMirror's `.cm-cursor`.
-- Do NOT skip snapping `coordsLeft = cellLeft.left` when `visibleCell` is
-  found; using `rawCoords.left` shifts the block cursor onto the collapsed
-  anchor widget and creates a 1px boundary gap.
-
-### How to verify
-
-The Vitest suite (`npm run test:run`) must pass all 145+ tests.
-The Playwright suite (`npm run test:browser`) must pass all 3+ tests.
-
-To test in real Obsidian with Steady Links active:
-
-```markdown
-(blank line)
-[[test-notes/Note-09.md#Note Nine |Wote Nine]]
-(blank line)
-```
-
-1. Enable block cursor in this plugin's settings
-2. Enable "keep links steady" in Steady Links settings
-3. Put cursor on the blank line above the wikilink, press ArrowDown
-4. The block cursor should correctly cover the first visible alias character
-   (`W`) with no garbling
-5. A single ArrowRight should move to the second visible character
-6. ArrowUp from the blank line below should produce the same result
-7. Check DevTools console for `cursor-measure:min-width-fallback` — if this
-   log appears, Steady Links is NOT correctly redirecting to textFrom and
-   has regressed
-
-## Critical: Block cursor positioning on soft-wrapped line ends (End key / Emacs end-of-line)
-
-On soft-wrapped lines, CodeMirror 6 breaks a line at offset `P` (the start of the
-continuation line). CM6 line-boundary commands target `(P, -1)`, which represents
-the insertion caret right at the line wrap.
-
-For a 1px caret cursor, `coordsAtPos(P, -1)` correctly renders at the end of the
-text. However, for a block cursor overlay, placing the block at `coordsAtPos(P, -1)`
-draws it to the *right* of character `P - 1` into empty margin space (floating cursor).
-
-In standard block cursor implementations (Emacs, Vim, etc.), placing the cursor at
-the visual line end means covering the trailing character on that visual line
-(`P - 1`, typically the space character before the wrap). A subsequent right arrow
-then advances cleanly to the first character of the continuation line (`P`).
-
-### Mandatory 3-Layer Defense Invariants
-
-1. **Keymap Direct Navigation (`handleEnd` in `Prec.highest`)**:
-   Intercepts physical <kbd>End</kbd> key presses, scans forward for `nextVisualStart`,
-   and dispatches selection directly to `nextVisualStart - 1` (`assoc: -1`).
-2. **Transaction Correction (`navCorrection`)**:
-   When an end-move transaction (`emacs.moveToEnd`, `selectLineEnd`, `selectLineBoundaryForward`,
-   `selectLineBoundaryRight`, or `lastKey === "End"`) lands on a soft-wrap boundary
-   (`isSoftWrap(view, pos)`), dispatches a corrective transaction to `pos - 1` (`assoc: -1`).
-3. **Measurement Fallback (`buildMeasureReq`)**:
-   When `isEndOfVisualLine && visualPos > line.from` triggers, snaps `targetPos = visualPos - 1`,
-   extracts the character at `targetPos`, measures `coordsLeft = view.coordsAtPos(targetPos, -1).left`,
-   and computes `charWidth = coordsBefore.left - cellCoords.left`. This ensures that even if an
-   external command lands on `(P, -1)` without triggering layer 1 or 2, the block cursor never
-   floats in the margin.
-
-### What NOT to do
-
-- Do NOT remove `handleEnd` from `Prec.highest` keymap.
-- Do NOT remove the `isEndMove` soft-wrap check in `navCorrection`.
-- Do NOT overwrite `charWidth` with `defaultCharacterWidth` when `isEndOfVisualLine` is true.
-
-## Critical: Line-box baseline alignment at link boundaries (preventing downward shift on trailing link character)
-
-When Steady Links collapses wikilink syntax, trailing syntax (e.g. `]]`) is replaced with an anchor widget (`span.le-hidden-syntax-anchor`) styled with:
-```css
-display: inline-block;
-width: 1px;
-height: 1em;
-line-height: 1;
-vertical-align: -0.2em;
-```
-Because the anchor widget has `vertical-align: -0.2em` and `height: 1em`:
-- Its `bottom` aligns with the line bottom.
-- Its `top` is shifted **downward** by ~3.5px relative to the font line box.
-- Measuring `view.coordsAtPos(vpos1, 1)` where `vpos1 = visualPos + 1` at the **last** character of a link (e.g. `k` in `[[...|Indented Link]]`) measures the rect of this **anchor widget**, NOT a visible character!
-
-### The fix (in this plugin)
-
-In `main.ts`, the line-box top correction:
-```ts
-if (rightCoords && !isEndOfVisualLine && vpos1 !== null) { ... }
-```
-normalizes line boxes when adjacent inline-block widgets inflate the line-box top at the start of a link (aligning `F` to match `i` in `First Link`).
-
-**Mandatory Invariant**:
-This correction MUST ONLY use `rightCoords.top` when `vpos1` is a **real, renderable text character** on the visual line (`isRightCellRenderable`):
-1. `vpos1 < line.to` (there is an actual next character position on the line).
-2. `!isZeroWidthOrCollapsedNode(resolveDomNodeAtPos(view, vpos1))` (the next position is NOT an anchor widget or collapsed syntax with `data-steady-links-anchor`, `le-hidden-syntax-anchor`, `aria-hidden="true"`, etc.).
-3. `nextCellWidth >= minimumBlockWidth` (the cell at `vpos1` has a real character width, not 0px or 1px).
-
-If `isRightCellRenderable` is false (as is always the case at the trailing edge of a link where `vpos1` is the trailing anchor widget), `coordsTop` remains `rawCoords.top`. This prevents the block cursor on the last character of a link from adopting the anchor widget's downward-shifted top and shrinking/shifting downwards.
-
-### What NOT to do
-
-- Do NOT remove `isRightCellRenderable` or its collapsed/width checks.
-- Do NOT use `Math.abs(coordsTop - rightCoords.top) > 1` without first verifying that `rightCoords` represents a visible character cell with `width >= minimumBlockWidth`.
-- Do NOT assume `vpos1` is a text character when the cursor is inside a link; at the last character of a link, `vpos1` is always the trailing anchor widget.
-
-## Testing infrastructure
-
-- **Vitest** (`npm run test:run`): 145+ unit tests for settings, color,
-  flash, navigation state
-- **Playwright** (`npm run test:browser`): 3+ browser tests using a real
-  CM6 editor with `CustomCursorViewPlugin`
-- **Vitest config** (`vitest.config.mts`): aliases `obsidian` to mock and
-  `../main` to source `main.ts` (not built `main.js`)
-- **Vite config** (`vite.config.mts`): same `obsidian` alias for Playwright
-  browser harness
-
-### Import resolution
-
-The `../main` import in `tests/homeNavigation.test.ts` resolves to `main.ts`
-via the Vitest alias in `vitest.config.mts`.  Do NOT change this import to
-`../main.ts` (breaks `tsc`) or `../main.js` (breaks Vitest aliasing).
+For cursor geometry, navigation, suppression or Steady Links interactions, read
+the relevant sections of [the regression guide](docs/AGENT-REGRESSIONS.md) and cited
+tests before editing. The detailed invariants/examples are preserved verbatim.
+Retain select.steadyLinks/programmatic ignores, visible-cell width fallback,
+default-cursor suppression/class cleanup, all three soft-wrap end defenses and
+the real-renderable-right-cell baseline check. Never remap geometry to hide a
+navigation bug. Preserve main/pop-out behavior and the documented import aliases.
+For these behavior changes, run the production build (includes units/types/lint)
+and browser suite once; real Obsidian integration still needs a manual check.
