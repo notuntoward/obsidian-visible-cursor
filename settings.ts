@@ -1,5 +1,7 @@
 import { App, PluginSettingTab, SettingDefinitionItem } from 'obsidian';
 
+import { formatFlashDuration, formatFlashSize, LINE_FLASH_DURATION, LINE_FLASH_MODE_LABELS, LINE_FLASH_SIZE } from 'commons/flash';
+
 import VisibleCursorPlugin from './main';
 
 export interface VisibleCursorPluginSettings {
@@ -22,11 +24,11 @@ export const DEFAULT_SETTINGS: VisibleCursorPluginSettings = {
 	lineHighlightMode: 'centered',
 	cursorCustomColorLight: '#6496ff',
 	cursorCustomColorDark: '#6496ff',
-	flashDuration: 1000,
+	flashDuration: LINE_FLASH_DURATION.default,
 	useThemeColors: true,
 	flashOnWindowScrolls: true,
 	flashOnWindowChanges: true,
-	flashSize: 15,
+	flashSize: LINE_FLASH_SIZE.default,
 	flashOnRepeatEnd: false
 };
 
@@ -84,9 +86,7 @@ export class VisibleCursorSettingTab extends PluginSettingTab {
 							key: 'lineHighlightMode',
 							options: {
 								off: 'Off',
-								centered: 'Centered around cursor',
-								left: 'Left to Right',
-								right: 'Right to Left'
+								...LINE_FLASH_MODE_LABELS
 							}
 						}
 					},
@@ -96,11 +96,11 @@ export class VisibleCursorSettingTab extends PluginSettingTab {
 						control: {
 							type: 'slider',
 							key: 'flashDuration',
-							min: 200,
-							max: 1500,
-							step: 50,
+							min: LINE_FLASH_DURATION.min,
+							max: LINE_FLASH_DURATION.max,
+							step: LINE_FLASH_DURATION.step,
 							disabled: () => !isFlashActive(),
-							displayFormat: (value: number) => `${(value / 1000).toFixed(2)}s`
+							displayFormat: formatFlashDuration
 						}
 					},
 					{
@@ -109,11 +109,11 @@ export class VisibleCursorSettingTab extends PluginSettingTab {
 						control: {
 							type: 'slider',
 							key: 'flashSize',
-							min: 4,
-							max: 30,
-							step: 1,
+							min: LINE_FLASH_SIZE.min,
+							max: LINE_FLASH_SIZE.max,
+							step: LINE_FLASH_SIZE.step,
 							disabled: () => isLineHighlightOff(),
-							displayFormat: (value: number) => `${value}ch`
+							displayFormat: formatFlashSize
 						}
 					}
 				]

@@ -24,7 +24,7 @@ import {
 } from "commons/windows";
 import { ColorProvider } from "./src/services/colorProvider";
 import { FlashScheduler, type FlashState } from "./src/services/flashScheduler";
-import { FlashRenderer } from "./src/services/flashRenderer";
+import { flashEditorLine, type LineFlashMode } from "commons/flash";
 
 /**
  * How recently a keyboard navigation key must have been pressed for
@@ -1363,7 +1363,6 @@ export default class VisibleCursorPlugin extends Plugin {
   // Services
   colorProvider: ColorProvider; // public so CustomCursorViewPlugin can read it
   private flashScheduler: FlashScheduler;
-  flashRenderer: FlashRenderer;
 
   async onload() {
     await this.loadSettings();
@@ -1371,7 +1370,6 @@ export default class VisibleCursorPlugin extends Plugin {
     // Initialize services
     this.colorProvider = new ColorProvider();
     this.flashScheduler = new FlashScheduler();
-    this.flashRenderer = new FlashRenderer();
 
     this.addSettingTab(new VisibleCursorSettingTab(this.app, this));
 
@@ -2688,12 +2686,8 @@ export default class VisibleCursorPlugin extends Plugin {
       this.scrollDebounceTimer = null;
     }
 
-    if (this.settings.lineHighlightMode === "left") {
-      this.showLineFlash(editorView);
-    } else if (this.settings.lineHighlightMode === "centered") {
-      this.showCursorCenteredFlash(editorView);
-    } else if (this.settings.lineHighlightMode === "right") {
-      this.showLineFlashRightToLeft(editorView);
+    if (this.settings.lineHighlightMode !== "off") {
+      this.showLineFlash(editorView, this.settings.lineHighlightMode);
     }
 
     this.flashActive = true;
@@ -2733,168 +2727,17 @@ export default class VisibleCursorPlugin extends Plugin {
     return getPreciseCursorCoords(editorView, pos, assoc);
   }
 
-  showLineFlash(editorView: EditorView) {
-    if (!this.isCursorInViewport(editorView)) return;
+  showLineFlash(editorView: EditorView, mode: LineFlashMode) {
     const coords = this.cursorCoords(editorView);
     if (!coords) return;
-
-    const editorElement = editorView.contentDOM;
-    const editorRect = editorElement.getBoundingClientRect();
-    const scrollDOM = editorView.scrollDOM;
-    const scrollRect = scrollDOM
-      ? scrollDOM.getBoundingClientRect()
-      : editorRect;
-    const scrollTop = scrollDOM ? scrollDOM.scrollTop : 0;
-    const scrollLeft = scrollDOM ? scrollDOM.scrollLeft : 0;
-
-    const defaultHeight = editorView.defaultLineHeight || 20;
-    let lineHeight = (coords.bottom - coords.top) || defaultHeight;
-    if (lineHeight > defaultHeight * 2.5 || lineHeight <= 0) {
-      lineHeight = defaultHeight;
-    }
     const { color, opacity } = this.colorProvider.getColor(this.settings);
-    const rgb = this.colorProvider.resolveColorToRgb(color);
-    const fontSize = parseFloat(getComputedStyle(editorElement).fontSize) || 16;
-    const charWidth = fontSize * 0.6;
-    const highlightDistance = this.settings.flashSize * charWidth;
-    const highlightPercent = Math.min(
-      100,
-      (highlightDistance / editorRect.width) * 100,
-    );
-
-    const position = {
-      left: editorRect.left - scrollRect.left + scrollLeft,
-      top: coords.top - scrollRect.top + scrollTop,
-    };
-    const size = { width: editorRect.width, height: lineHeight };
-    const positionMode = scrollDOM ? "absolute" : "fixed";
-    const parent = scrollDOM || editorView.dom?.ownerDocument?.body || activeDocument.body;
-
-    const cssText = this.flashRenderer.buildLeftGradientCSS(
-      position,
-      size,
-      rgb,
+    flashEditorLine(editorView, coords, {
+      mode,
+      color,
       opacity,
-      highlightPercent,
-      this.settings.flashDuration,
-      positionMode,
-    );
-    this.flashRenderer.render(
-      "left",
-      cssText,
-      this.settings.flashDuration,
-      parent,
-    );
-  }
-
-  showLineFlashRightToLeft(editorView: EditorView) {
-    if (!this.isCursorInViewport(editorView)) return;
-    const coords = this.cursorCoords(editorView);
-    if (!coords) return;
-
-    const editorElement = editorView.contentDOM;
-    const editorRect = editorElement.getBoundingClientRect();
-    const scrollDOM = editorView.scrollDOM;
-    const scrollRect = scrollDOM
-      ? scrollDOM.getBoundingClientRect()
-      : editorRect;
-    const scrollTop = scrollDOM ? scrollDOM.scrollTop : 0;
-    const scrollLeft = scrollDOM ? scrollDOM.scrollLeft : 0;
-
-    const defaultHeight = editorView.defaultLineHeight || 20;
-    let lineHeight = (coords.bottom - coords.top) || defaultHeight;
-    if (lineHeight > defaultHeight * 2.5 || lineHeight <= 0) {
-      lineHeight = defaultHeight;
-    }
-    const { color, opacity } = this.colorProvider.getColor(this.settings);
-    const rgb = this.colorProvider.resolveColorToRgb(color);
-    const fontSize = parseFloat(getComputedStyle(editorElement).fontSize) || 16;
-    const charWidth = fontSize * 0.6;
-    const highlightDistance = this.settings.flashSize * charWidth;
-    const highlightPercent = Math.min(
-      100,
-      (highlightDistance / editorRect.width) * 100,
-    );
-
-    const position = {
-      left: editorRect.left - scrollRect.left + scrollLeft,
-      top: coords.top - scrollRect.top + scrollTop,
-    };
-    const size = { width: editorRect.width, height: lineHeight };
-    const positionMode = scrollDOM ? "absolute" : "fixed";
-    const parent = scrollDOM || editorView.dom?.ownerDocument?.body || activeDocument.body;
-
-    const cssText = this.flashRenderer.buildRightGradientCSS(
-      position,
-      size,
-      rgb,
-      opacity,
-      highlightPercent,
-      this.settings.flashDuration,
-      positionMode,
-    );
-    this.flashRenderer.render(
-      "right",
-      cssText,
-      this.settings.flashDuration,
-      parent,
-    );
-  }
-
-  showCursorCenteredFlash(editorView: EditorView) {
-    if (!this.isCursorInViewport(editorView)) return;
-    const coords = this.cursorCoords(editorView);
-    if (!coords) return;
-
-    const editorElement = editorView.contentDOM;
-    const editorRect = editorElement.getBoundingClientRect();
-    const scrollDOM = editorView.scrollDOM;
-    const scrollRect = scrollDOM
-      ? scrollDOM.getBoundingClientRect()
-      : editorRect;
-    const scrollTop = scrollDOM ? scrollDOM.scrollTop : 0;
-    const scrollLeft = scrollDOM ? scrollDOM.scrollLeft : 0;
-
-    const defaultHeight = editorView.defaultLineHeight || 20;
-    let lineHeight = (coords.bottom - coords.top) || defaultHeight;
-    if (lineHeight > defaultHeight * 2.5 || lineHeight <= 0) {
-      lineHeight = defaultHeight;
-    }
-    const cursorX = coords.left - editorRect.left;
-    const editorWidth = editorRect.width;
-    const cursorPercent = (cursorX / editorWidth) * 100;
-    const { color, opacity } = this.colorProvider.getColor(this.settings);
-    const rgb = this.colorProvider.resolveColorToRgb(color);
-
-    const fontSize = parseFloat(getComputedStyle(editorElement).fontSize) || 16;
-    const charWidth = fontSize * 0.6;
-    const spreadDistance = (this.settings.flashSize / 2) * charWidth;
-    const spreadPercent = (spreadDistance / editorRect.width) * 100;
-
-    const position = {
-      left: editorRect.left - scrollRect.left + scrollLeft,
-      top: coords.top - scrollRect.top + scrollTop,
-    };
-    const size = { width: editorRect.width, height: lineHeight };
-    const positionMode = scrollDOM ? "absolute" : "fixed";
-    const parent = scrollDOM || editorView.dom?.ownerDocument?.body || activeDocument.body;
-
-    const cssText = this.flashRenderer.buildCenteredGradientCSS(
-      position,
-      size,
-      rgb,
-      opacity,
-      cursorPercent,
-      spreadPercent,
-      this.settings.flashDuration,
-      positionMode,
-    );
-    this.flashRenderer.render(
-      "centered",
-      cssText,
-      this.settings.flashDuration,
-      parent,
-    );
+      sizeChars: this.settings.flashSize,
+      durationMs: this.settings.flashDuration,
+    });
   }
 
   refreshDecorations() {

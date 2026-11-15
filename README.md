@@ -54,7 +54,7 @@ Download the latest release from the [GitHub releases page](https://github.com/n
 
 This plugin uses CodeMirror 6 geometry and DOM APIs to render its custom cursor and line-flash effects accurately. In particular, those features depend on low-level editor-view capabilities such as cursor coordinate measurement and access to the rendered editor DOM.
 
-Obsidian's public editor API does not currently expose the underlying CodeMirror [`EditorView`](main.ts:1024) needed for those operations. Because of that, the plugin accesses the CM6 view through a single helper, [`VisibleCursorPlugin.getCMView()`](main.ts:1024), which isolates the only internal-API dependency in the codebase.
+Obsidian's public editor API does not currently expose the underlying CodeMirror `EditorView` needed for those operations. Because of that, the plugin accesses the CM6 view through a single helper, [`VisibleCursorPlugin.getCMView()`](main.ts), which isolates the internal editor-view access.
 
 That access is intentionally limited and defensive:
 
@@ -89,17 +89,23 @@ For development diagnostics, set `app.plugins.plugins['visible-cursor'].debugAda
 
 <!-- ![Flash Settings](screenshots/settings-flash.png) -->
 
+Line flashes use the bundled `commons/flash` renderer also used by Perplexity
+Saver. Styles and cleanup belong to the editor's own window, including pop-outs.
+Flashes in the same scroller replace one another rather than stacking. Movement
+triggers and character cursor decoration remain controlled by this plugin;
+commons does not need to be installed as a separate Obsidian plugin.
+
 **Line highlight** (default: centered)
-- "Left" for left-to-right fade
-- "Centered" for cursor-focused highlighting
-- "Right" for right-to-left fade
+- "Left to right" for left-to-right fade
+- "Centered around cursor" for cursor-focused highlighting
+- "Right to left" for right-to-left fade
 - "Off" for character decoration only
 
 **Flash duration** (default: 1s)
 - Control how long the flash effect lasts (0.2s - 1.5s)
 
 **Flash size** (default: 15 characters)
-- Adjust the width of the line highlight (4-15 characters)
+- Adjust the width of the line highlight (4-30 characters)
 
 ### Flash Triggers
 
