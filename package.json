@@ -33,7 +33,7 @@
 		"eslint": "^9.39.4",
 		"eslint-plugin-obsidianmd": "^0.6.0",
 		"globals": "^17.6.0",
-		"obsidian": "^1.13.1",
+		"obsidian": "^1.14.4",
 		"playwright": "^1.59.1",
 		"tslib": "2.4.0",
 		"typescript": "^5.9.3",
