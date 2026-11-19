@@ -128,27 +128,32 @@ export function getContrastRatio(color1: string, color2: string): number {
  */
 export function isEditorTextClick(target: EventTarget | null): boolean {
 	if (!target) return false;
-	let curr: any = target;
+	type ClickNode = EventTarget & {
+		ownerDocument?: Document | null;
+		parentElement?: HTMLElement | null;
+		parentNode?: Node | null;
+		classList?: DOMTokenList;
+		className?: string | { baseVal?: unknown };
+	};
+	let curr: ClickNode | null = target;
 	while (curr && curr !== activeDocument && curr !== curr.ownerDocument) {
-		const cls = curr.className;
-		const classStr = typeof cls === 'string' ? cls : (cls?.baseVal ?? '');
+		const className = curr.className;
+		const classString = typeof className === "string"
+			? className
+			: typeof className?.baseVal === "string" ? className.baseVal : "";
 		if (
-			classStr.includes('cm-content') ||
-			classStr.includes('cm-editor') ||
-			classStr.includes('markdown-source-view')
+			classString.split(/\s+/).some(classToken =>
+				classToken === "cm-content" ||
+				classToken === "cm-editor" ||
+				classToken === "markdown-source-view"
+			) ||
+			curr.classList?.contains('cm-content') ||
+			curr.classList?.contains('cm-editor') ||
+			curr.classList?.contains('markdown-source-view')
 		) {
 			return true;
 		}
-		if (
-			curr.classList &&
-			typeof curr.classList.contains === 'function' &&
-			(curr.classList.contains('cm-content') ||
-				curr.classList.contains('cm-editor') ||
-				curr.classList.contains('markdown-source-view'))
-		) {
-			return true;
-		}
-		curr = curr.parentElement || curr.parentNode;
+		curr = (curr.parentElement ?? curr.parentNode) as ClickNode | null;
 	}
 	return false;
 }

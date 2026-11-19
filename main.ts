@@ -56,7 +56,7 @@ export function isSoftWrap(view: EditorView, pos: number): boolean {
 
     const threshold = (view.defaultLineHeight || 20) * 0.3;
     return Math.abs(coordsBefore.top - coordsAfter.top) > threshold;
-  } catch (e) {
+  } catch (_e) {
     return false;
   }
 }
@@ -231,8 +231,6 @@ export class CustomCursorViewPlugin {
     this.cursorLayer = (view.dom?.ownerDocument || activeDocument).createElement("div");
     this.cursorLayer.className = "visible-cursor-custom-layer";
     this.cursorLayer.setAttribute("aria-hidden", "true");
-    this.cursorLayer.style.cssText =
-      "position: absolute; top: 0; left: 0; pointer-events: none; overflow: visible;";
     view.scrollDOM.appendChild(this.cursorLayer);
 
     const win = view.dom?.ownerDocument?.defaultView;
@@ -443,8 +441,6 @@ export class CustomCursorViewPlugin {
         this.view.dom.classList.remove("visible-cursor-hide-default");
       }
     }
-    this.view = null as any;
-    this.plugin = null as any;
   }
 
   /**
@@ -462,7 +458,7 @@ export class CustomCursorViewPlugin {
 
     const debugMeasure = (label: string, data: Record<string, unknown>) => {
       if (!plugin.debugCursorDiagnostics) return;
-      console.log("[visible-cursor]", label, data);
+      console.warn("[visible-cursor]", label, data);
     };
 
     const isZeroWidthOrCollapsedNode = (
@@ -1045,7 +1041,9 @@ export class CustomCursorViewPlugin {
           fontFamily,
         };
         } catch (err) {
-          console.error("CAUGHT IN READ:", err);
+          if (plugin.debugCursorDiagnostics) {
+            console.warn("[visible-cursor] Error in buildMeasureReq.read:", err);
+          }
           this.lastCursorDocPos = null;
           return null;
         }
@@ -1068,12 +1066,12 @@ export class CustomCursorViewPlugin {
         try {
         if (!measure) {
           this.clearOutline();
-          cursorLayer.style.display = "none";
+          cursorLayer.classList.add("is-hidden");
           this.view.contentDOM?.classList.remove("visible-cursor-hide-caret");
           this.view.dom?.classList.remove("visible-cursor-hide-default");
           return;
         }
-        cursorLayer.style.display = "";
+        cursorLayer.classList.remove("is-hidden");
 
         // Hide native browser caret and default CodeMirror cursor
         this.view.contentDOM?.classList.add("visible-cursor-hide-caret");
@@ -1086,58 +1084,45 @@ export class CustomCursorViewPlugin {
         }
 
         const el = this.cursorEl;
-        el.style.position = "absolute";
-        el.style.top = measure.top + "px";
-        el.style.left = measure.left + "px";
-        el.style.height = measure.height + "px";
-
         const style = plugin.settings.customCursorStyle;
+        const widthByStyle = {
+          bar: "3px",
+          thinbar: "2px",
+          block: measure.width > 0 ? `${measure.width}px` : "0.6em",
+        };
+        const cursorWidth = widthByStyle[style];
+        el.className = `visible-cursor-element visible-cursor-element--${style}`;
+        el.setCssProps({
+          top: `${measure.top}px`,
+          left: `${measure.left}px`,
+          height: `${measure.height}px`,
+        });
         if (style === "bar") {
-          el.style.width = "3px";
-          el.style.marginLeft = "-1px";
-          el.style.backgroundColor = measure.color;
-          el.style.border = "";
-          el.style.opacity = "";
-          el.style.mixBlendMode = "";
+          el.setCssProps({ width: cursorWidth, "background-color": measure.color });
           el.textContent = "";
         } else if (style === "thinbar") {
-          el.style.width = "2px";
-          el.style.backgroundColor = measure.color;
-          el.style.border = "";
-          el.style.opacity = "";
-          el.style.marginLeft = "";
-          el.style.mixBlendMode = "";
+          el.setCssProps({ width: cursorWidth, "background-color": measure.color });
           el.textContent = "";
         } else {
           // block: covers the character cell using the measured character width.
-          el.style.width = measure.width > 0 ? measure.width + "px" : "0.6em";
-          el.style.backgroundColor = measure.color;
-          el.style.opacity = "1";
-          el.style.mixBlendMode = "normal";
-          el.style.border = "";
-          el.style.marginLeft = "";
-
           // Render the character inside the cursor for perfect contrast
           el.textContent = measure.char;
-          el.style.color = measure.contrastColor;
-          el.style.display = "flex";
-          el.style.alignItems = "center";
-          el.style.justifyContent = "flex-start";
-          el.style.overflow = "hidden";
-          el.style.whiteSpace = "pre";
-          // Match the font of the editor and the specific character
-          el.style.fontStyle = measure.fontStyle;
-          el.style.fontWeight = measure.fontWeight;
-          el.style.fontSize = measure.fontSize;
-          el.style.fontFamily = measure.fontFamily;
-          el.style.lineHeight = measure.height + "px";
-          el.style.setProperty("tab-size", "inherit");
+          el.setCssProps({
+            width: cursorWidth,
+            "background-color": measure.color,
+            color: measure.contrastColor,
+            "font-style": measure.fontStyle,
+            "font-weight": measure.fontWeight,
+            "font-size": measure.fontSize,
+            "font-family": measure.fontFamily,
+            "line-height": `${measure.height}px`,
+          });
         }
         if (style === "block") this.scheduleOutline();
         else this.clearOutline();
         } catch (err) {
           if (plugin.debugCursorDiagnostics) {
-            console.error("[visible-cursor] Error in buildMeasureReq.write:", err);
+            console.warn("[visible-cursor] Error in buildMeasureReq.write:", err);
           }
         }
       },
@@ -1253,35 +1238,22 @@ export default class VisibleCursorPlugin extends Plugin {
           col: pos - line.from,
           lineText: line.text,
         };
-      } catch (e) {
+      } catch (_e) {
         // Safe fallback
       }
     }
 
-    try {
-      console.group(`[visible-cursor] Freeze Recovery Triggered: ${reason ?? "unknown"}`);
-      console.warn("Trigger reason:", reason);
-      if (error) console.error("Underlying Exception:", error);
-      if (typeof console.table === "function") {
-        console.table({
-          "Trigger Reason": reason,
-          "Cursor Pos": pos,
-          "Line Number": lineInfo?.lineNumber,
-          "Column": lineInfo?.col,
-          "Last Key": this.lastKey,
-          "Stall Count": this.navStallCount,
-          "Has Focus": view?.hasFocus,
-          "Block Wrap State": JSON.stringify(this.blockWrapState),
-        });
-      }
-      if (lineInfo?.lineText !== undefined) {
-        console.log("Current Line Content:", lineInfo.lineText);
-      }
-      console.trace("Call stack to recoverFromFreeze");
-      console.groupEnd();
-    } catch (e) {
-      // Safe fallback
-    }
+    console.warn(`[visible-cursor] Freeze recovery triggered: ${reason ?? "unknown"}`, {
+      error,
+      cursorPos: pos,
+      lineNumber: lineInfo?.lineNumber,
+      column: lineInfo?.col,
+      lineText: lineInfo?.lineText,
+      lastKey: this.lastKey,
+      stallCount: this.navStallCount,
+      hasFocus: view?.hasFocus,
+      blockWrapState: this.blockWrapState,
+    });
 
     // 1. Reset navigation and wrap states
     this.blockWrapState = null;
@@ -1295,17 +1267,17 @@ export default class VisibleCursorPlugin extends Plugin {
       try {
         if (typeof this.app?.workspace?.iterateAllLeaves === "function") {
           const leaf = this.getWorkspaceLeafForEditorView(view);
-          if (leaf && leaf !== this.app.workspace.activeLeaf) {
+          if (leaf && leaf !== this.getActiveLeafInFocusedWindow()) {
             this.app.workspace.setActiveLeaf(leaf, { focus: true });
           }
         }
-      } catch (e) {
+      } catch (_e) {
         // Safe fallback
       }
       try {
         view.focus?.();
         view.requestMeasure?.();
-      } catch (e) {
+      } catch (_e) {
         // Safe fallback
       }
     }
@@ -1373,15 +1345,13 @@ export default class VisibleCursorPlugin extends Plugin {
 
     this.addSettingTab(new VisibleCursorSettingTab(this.app, this));
 
-    const pluginRef = this;
-
     // Register editor extensions:
     // 1. CustomCursorViewPlugin — codemirror-emacs BlockCursorPlugin pattern
     // 2. cursorSuppressionTheme — suppresses default blinking cursor while custom cursor is active
     // 3. domEventHandlers — scroll-triggered flashes
     // 4. blockCursorNavFilter — GNU Emacs soft-wrap boundary navigation for block cursor
     this.registerEditorExtension([
-      ViewPlugin.define((view) => new CustomCursorViewPlugin(view, pluginRef)),
+      ViewPlugin.define((view) => new CustomCursorViewPlugin(view, this)),
       this.createCursorSuppressionTheme(),
       this.createDOMEventHandlers(),
       ...this.createBlockCursorNavFilter(),
@@ -1514,7 +1484,7 @@ export default class VisibleCursorPlugin extends Plugin {
             } else if (moveDir === "forward" && line.number === view.state.doc.lines) {
               isAtEdge = true;
             }
-          } catch (e) {
+          } catch (_e) {
             // Safe fallback
           }
         }
@@ -1579,59 +1549,57 @@ export default class VisibleCursorPlugin extends Plugin {
   }
 
   createDOMEventHandlers() {
-    const plugin = this;
-
     return EditorView.domEventHandlers({
       keydown: (event: KeyboardEvent, view: EditorView) => {
-        return plugin.handleKeydown(event, view);
+        return this.handleKeydown(event, view);
       },
       scroll: (event: Event, view: EditorView) => {
-        if (!plugin.settings.flashOnWindowScrolls) return false;
+        if (!this.settings.flashOnWindowScrolls) return false;
         if (!view.hasFocus) return false;
 
         const win = (view?.dom ? ownerWindow(view.dom) : null) ?? window;
-        const scrolledLeaf = plugin.getWorkspaceLeafForEditorView(view);
+        const scrolledLeaf = this.getWorkspaceLeafForEditorView(view);
         if (
           !scrolledLeaf ||
           getWindowForLeaf(scrolledLeaf) !==
-            getWindowForLeaf(plugin.getActiveLeafInFocusedWindow())
+            getWindowForLeaf(this.getActiveLeafInFocusedWindow())
         ) {
-          if (plugin.scrollDebounceTimer) {
-            win.clearTimeout(plugin.scrollDebounceTimer);
-            plugin.scrollDebounceTimer = null;
+          if (this.scrollDebounceTimer) {
+            win.clearTimeout(this.scrollDebounceTimer);
+            this.scrollDebounceTimer = null;
           }
           return false;
         }
 
-        if (!plugin.isCursorInViewport(view)) {
-          if (plugin.scrollDebounceTimer) {
-            win.clearTimeout(plugin.scrollDebounceTimer);
-            plugin.scrollDebounceTimer = null;
+        if (!this.isCursorInViewport(view)) {
+          if (this.scrollDebounceTimer) {
+            win.clearTimeout(this.scrollDebounceTimer);
+            this.scrollDebounceTimer = null;
           }
           return false;
         }
 
         const currentScrollPos = view.scrollDOM.scrollTop;
         const scrollDelta = Math.abs(
-          currentScrollPos - plugin.lastScrollPosition,
+          currentScrollPos - this.lastScrollPosition,
         );
-        plugin.lastScrollPosition = currentScrollPos;
+        this.lastScrollPosition = currentScrollPos;
 
-        if (plugin.scrollDebounceTimer) {
-          win.clearTimeout(plugin.scrollDebounceTimer);
+        if (this.scrollDebounceTimer) {
+          win.clearTimeout(this.scrollDebounceTimer);
         }
 
         const debounceTime =
-          plugin.flashScheduler.getScrollDebounceTime(scrollDelta);
-        plugin.scrollDebounceTimer = win.setTimeout(() => {
-          if (Date.now() - plugin.lastKeyDownTime < RECENT_KEYDOWN_WINDOW_MS) {
-            plugin.scrollDebounceTimer = null;
+          this.flashScheduler.getScrollDebounceTime(scrollDelta);
+        this.scrollDebounceTimer = win.setTimeout(() => {
+          if (Date.now() - this.lastKeyDownTime < RECENT_KEYDOWN_WINDOW_MS) {
+            this.scrollDebounceTimer = null;
             return;
           }
-          if (plugin.isCursorInViewport(view)) {
-            plugin.scheduleFlash("scroll", false);
+          if (this.isCursorInViewport(view)) {
+            this.scheduleFlash("scroll", false);
           }
-          plugin.scrollDebounceTimer = null;
+          this.scrollDebounceTimer = null;
         }, debounceTime);
 
         return false;
@@ -1663,11 +1631,9 @@ export default class VisibleCursorPlugin extends Plugin {
    * Bar / thinbar cursors are completely unaffected.
    */
   createBlockCursorNavFilter() {
-    const plugin = this;
-
     const debugNav = (label: string, data: Record<string, unknown>) => {
-      if (!plugin.debugCursorDiagnostics) return;
-      console.log("[visible-cursor]", label, data);
+      if (!this.debugCursorDiagnostics) return;
+      console.warn("[visible-cursor]", label, data);
     };
 
 
@@ -1677,7 +1643,7 @@ export default class VisibleCursorPlugin extends Plugin {
     //
     // STATE VARIABLES
     // ───────────────
-    //   plugin.blockWrapState  (BlockWrapState | null)  — class field on VisibleCursorPlugin
+    //   this.blockWrapState  (BlockWrapState | null)  — class field on VisibleCursorPlugin
     //     Non-null when the cursor is visually sitting at the START of a soft-wrap
     //     continuation line.  The renderer reads this to override the coordinate
     //     lookup (assoc=+1 instead of CM6's default assoc=-1).
@@ -1828,7 +1794,7 @@ export default class VisibleCursorPlugin extends Plugin {
     const handleRight = (view: EditorView): boolean => {
       try {
 
-      if (plugin.settings.customCursorStyle !== "block") return false;
+      if (this.settings.customCursorStyle !== "block") return false;
 
       // Multi-cursor: if more than one cursor exists (including multiple collapsed
       // cursors from Alt+Click), skip all wrap-correction logic entirely so that
@@ -1843,23 +1809,23 @@ export default class VisibleCursorPlugin extends Plugin {
       const pos = sel.head;
 
 
-      if (plugin.blockWrapState && plugin.blockWrapState.logicalPos === pos) {
-        plugin.blockWrapState = null;
+      if (this.blockWrapState && this.blockWrapState.logicalPos === pos) {
+        this.blockWrapState = null;
         return false;
       }
 
       if (sel.assoc !== 1 && isSoftWrap(view, pos)) {
-        plugin.blockWrapState = { logicalPos: pos, showPos: pos, assoc: 1 };
+        this.blockWrapState = { logicalPos: pos, showPos: pos, assoc: 1 };
         pendingDownFromWrapPos = pos;
         view.dispatch({ selection: EditorSelection.cursor(pos, 1) });
         return true;
       }
 
-      plugin.blockWrapState = null;
+      this.blockWrapState = null;
       return false;
     
       } catch (err) {
-        plugin.recoverFromFreeze(view, "handleRight_error", err);
+        this.recoverFromFreeze(view, "handleRight_error", err);
         return false;
       }
     };
@@ -1867,17 +1833,17 @@ export default class VisibleCursorPlugin extends Plugin {
     const handleLeft = (view: EditorView): boolean => {
       try {
 
-      if (plugin.settings.customCursorStyle !== "block") return false;
+      if (this.settings.customCursorStyle !== "block") return false;
       // Clear state on any leftward movement (selection or not): we've left the
       // wrap boundary context, so any pending wrap-correction is no longer relevant.
 
-      plugin.blockWrapState = null;
+      this.blockWrapState = null;
       pendingDownFromWrapPos = null;
 
       return false;
     
       } catch (err) {
-        plugin.recoverFromFreeze(view, "handleLeft_error", err);
+        this.recoverFromFreeze(view, "handleLeft_error", err);
         return false;
       }
     };
@@ -1885,7 +1851,7 @@ export default class VisibleCursorPlugin extends Plugin {
     const handleHome = (view: EditorView): boolean => {
       try {
 
-      if (plugin.settings.customCursorStyle !== "block") return false;
+      if (this.settings.customCursorStyle !== "block") return false;
       if (view.state.selection.ranges.length > 1) return false;
 
       const sel = view.state.selection.main;
@@ -1894,17 +1860,17 @@ export default class VisibleCursorPlugin extends Plugin {
       debugNav("handleHome", {
         pos: sel.head,
         assoc: sel.assoc,
-        blockWrapState: plugin.blockWrapState,
+        blockWrapState: this.blockWrapState,
       });
 
-      plugin.blockWrapState = null;
+      this.blockWrapState = null;
       pendingDownFromWrapPos = null;
-      plugin.lastKey = "Home";
+      this.lastKey = "Home";
 
       return false;
     
       } catch (err) {
-        plugin.recoverFromFreeze(view, "handleHome_error", err);
+        this.recoverFromFreeze(view, "handleHome_error", err);
         return false;
       }
     };
@@ -1912,7 +1878,7 @@ export default class VisibleCursorPlugin extends Plugin {
     const handleEnd = (view: EditorView): boolean => {
       try {
 
-      if (plugin.settings.customCursorStyle !== "block") return false;
+      if (this.settings.customCursorStyle !== "block") return false;
       if (view.state.selection.ranges.length > 1) return false;
 
       const sel = view.state.selection.main;
@@ -1938,9 +1904,9 @@ export default class VisibleCursorPlugin extends Plugin {
         }
       }
 
-      plugin.blockWrapState = null;
+      this.blockWrapState = null;
       pendingDownFromWrapPos = null;
-      plugin.lastKey = "End";
+      this.lastKey = "End";
 
       if (nextVisualStart !== null) {
         const target = nextVisualStart - 1;
@@ -1964,7 +1930,7 @@ export default class VisibleCursorPlugin extends Plugin {
       return false;
     
       } catch (err) {
-        plugin.recoverFromFreeze(view, "handleEnd_error", err);
+        this.recoverFromFreeze(view, "handleEnd_error", err);
         return false;
       }
     };
@@ -1972,7 +1938,7 @@ export default class VisibleCursorPlugin extends Plugin {
     const handleDown = (view: EditorView): boolean => {
       try {
 
-      if (plugin.settings.customCursorStyle !== "block") return false;
+      if (this.settings.customCursorStyle !== "block") return false;
 
       // Multi-cursor: skip wrap-correction so all cursors move identically via CM6.
       if (view.state.selection.ranges.length > 1) return false;
@@ -1983,10 +1949,10 @@ export default class VisibleCursorPlugin extends Plugin {
       const pos = sel.head;
 
       const wrapStateForPos =
-        plugin.blockWrapState &&
-        plugin.blockWrapState.logicalPos === pos &&
-        plugin.blockWrapState.assoc === 1
-          ? plugin.blockWrapState
+        this.blockWrapState &&
+        this.blockWrapState.logicalPos === pos &&
+        this.blockWrapState.assoc === 1
+          ? this.blockWrapState
           : null;
 
       const allowWrappedDown =
@@ -2010,19 +1976,19 @@ export default class VisibleCursorPlugin extends Plugin {
       debugNav("handleDown:target", {
         fromPos: pos,
         target,
-        blockWrapStateBefore: plugin.blockWrapState,
+        blockWrapStateBefore: this.blockWrapState,
       });
 
       if (!target) {
-        plugin.blockWrapState = null;
+        this.blockWrapState = null;
   
         return false;
       }
 
-      // Set plugin.blockWrapState for the target position so the renderer shows
+      // Set this.blockWrapState for the target position so the renderer shows
       // the cursor at the start of the continuation line (assoc=1),
       // just like handleRight() does.
-      plugin.blockWrapState = {
+      this.blockWrapState = {
         logicalPos: target.pos,
         showPos: target.pos,
         assoc: 1,
@@ -2035,7 +2001,7 @@ export default class VisibleCursorPlugin extends Plugin {
       return true;
     
       } catch (err) {
-        plugin.recoverFromFreeze(view, "handleDown_error", err);
+        this.recoverFromFreeze(view, "handleDown_error", err);
         return false;
       }
     };
@@ -2043,7 +2009,7 @@ export default class VisibleCursorPlugin extends Plugin {
     const handleUp = (view: EditorView): boolean => {
       try {
 
-      if (plugin.settings.customCursorStyle !== "block") return false;
+      if (this.settings.customCursorStyle !== "block") return false;
 
       // Multi-cursor: skip wrap-correction so all cursors move identically via CM6.
       if (view.state.selection.ranges.length > 1) return false;
@@ -2053,37 +2019,37 @@ export default class VisibleCursorPlugin extends Plugin {
 
       const pos = sel.head;
 
-      // CASE 1: Cursor is at a known wrap boundary (plugin.blockWrapState active,
+      // CASE 1: Cursor is at a known wrap boundary (this.blockWrapState active,
       // visually at the start of a continuation line).  Compute the target
       // ourselves — symmetric to handleDown's findStartOfNextVisualLineFromWrap.
       if (
-        plugin.blockWrapState &&
-        plugin.blockWrapState.logicalPos === pos &&
-        plugin.blockWrapState.assoc === 1
+        this.blockWrapState &&
+        this.blockWrapState.logicalPos === pos &&
+        this.blockWrapState.assoc === 1
       ) {
         const target = findStartOfPreviousVisualLineFromWrap(view, pos);
         debugNav("handleUp:wrapped", {
           pos,
           assoc: sel.assoc,
-          blockWrapState: plugin.blockWrapState,
+          blockWrapState: this.blockWrapState,
           target,
         });
 
         if (!target) {
-          plugin.blockWrapState = null;
+          this.blockWrapState = null;
     
           return false; // top of document — let CM6 handle
         }
 
         if (target.isSoftWrap) {
-          plugin.blockWrapState = {
+          this.blockWrapState = {
             logicalPos: target.pos,
             showPos: target.pos,
             assoc: 1,
           };
           pendingDownFromWrapPos = target.pos;
         } else {
-          plugin.blockWrapState = null;
+          this.blockWrapState = null;
           pendingDownFromWrapPos = null;
     
         }
@@ -2105,13 +2071,13 @@ export default class VisibleCursorPlugin extends Plugin {
       debugNav("handleUp:passthrough", {
         pos,
         assoc: sel.assoc,
-        blockWrapState: plugin.blockWrapState,
+        blockWrapState: this.blockWrapState,
         pendingDownFromWrapPos,
       });
       return false;
     
       } catch (err) {
-        plugin.recoverFromFreeze(view, "handleUp_error", err);
+        this.recoverFromFreeze(view, "handleUp_error", err);
         return false;
       }
     };
@@ -2126,7 +2092,7 @@ export default class VisibleCursorPlugin extends Plugin {
         update.selectionSet &&
         update.state.selection.main.head !== update.startState.selection.main.head
       ) {
-        plugin?.resetNavStall?.();
+        this.resetNavStall();
       }
 
       // Explicit re-entrancy guard: every corrective dispatch below is tagged with
@@ -2145,7 +2111,7 @@ export default class VisibleCursorPlugin extends Plugin {
       ) {
         consecutiveWrapCorrections++;
         if (consecutiveWrapCorrections > 2) {
-          plugin.recoverFromFreeze(update.view, "wrap_correction_loop");
+          this.recoverFromFreeze(update.view, "wrap_correction_loop");
           consecutiveWrapCorrections = 0;
         }
         return;
@@ -2163,8 +2129,8 @@ export default class VisibleCursorPlugin extends Plugin {
         oldAssoc: oldSel.assoc,
         newHead: sel.head,
         newAssoc: sel.assoc,
-        lastKey: plugin.lastKey,
-        blockWrapState: plugin.blockWrapState,
+        lastKey: this.lastKey,
+        blockWrapState: this.blockWrapState,
         transactions: update.transactions.map((t) => ({
           home: t.isUserEvent("emacs.moveToBeginning"),
           end: t.isUserEvent("emacs.moveToEnd"),
@@ -2177,34 +2143,34 @@ export default class VisibleCursorPlugin extends Plugin {
       // cursors from Alt+Click), clear any pending wrap state and skip all corrective
       // dispatches so that every cursor receives identical CM6-native movement.
       if (update.state.selection.ranges.length > 1) {
-        plugin.blockWrapState = null;
+        this.blockWrapState = null;
         pendingDownFromWrapPos = null;
   
         return;
       }
 
-      const oldWrapState = plugin.blockWrapState;
+      const oldWrapState = this.blockWrapState;
 
       // Note: When user presses Shift+Arrow, handlers fall through to CM6
       // default behavior, but navCorrection may dispatch new transactions based on
-      // plugin.blockWrapState without checking if the selection is intentional."
+      // this.blockWrapState without checking if the selection is intentional."
       //
       // This is correct behavior. When the user creates a selection (Shift+Arrow),
       // the selection IS intentional — it's standard text selection. The wrap-correction
-      // state (blockWrapState: plugin.blockWrapState, pendingDownFromWrapPos) is specifically for single-cursor
+      // state (blockWrapState: this.blockWrapState, pendingDownFromWrapPos) is specifically for single-cursor
       // navigation through wrapped lines. A selection is a different operation: it selects
       // text, not navigates cursor position. Clearing the state here prevents wrap-correction
       // logic from accidentally affecting text selection ranges.
       //
       // Additionally, the early-exit below ensures navCorrection doesn't dispatch any
       // corrective transactions when sel.empty is false (i.e., there's a selection).
-      if (plugin.blockWrapState !== null) {
+      if (this.blockWrapState !== null) {
         if (
           update.docChanged ||
           !sel.empty ||
-          sel.head !== plugin.blockWrapState.logicalPos
+          sel.head !== this.blockWrapState.logicalPos
         ) {
-          plugin.blockWrapState = null;
+          this.blockWrapState = null;
         }
       }
 
@@ -2217,7 +2183,7 @@ export default class VisibleCursorPlugin extends Plugin {
       }
 
       if (!update.selectionSet || update.docChanged) return;
-      if (plugin.settings.customCursorStyle !== "block") return;
+      if (this.settings.customCursorStyle !== "block") return;
       // EARLY EXIT: When selection is non-empty (e.g., Shift+Arrow), do not apply
       // any wrap-correction transactions. The user is selecting text, not navigating.
       if (!sel.empty) return;
@@ -2237,9 +2203,9 @@ export default class VisibleCursorPlugin extends Plugin {
       const currentLine = currentDoc.lineAt(pos);
       if (currentLine.from === currentLine.to) {
         // Blank line: tear down all wrap/event states; never dispatch wrap corrections on empty lines.
-        plugin.lastKey = "";
-        plugin.lastUserEvent = "";
-        plugin.blockWrapState = null;
+        this.lastKey = "";
+        this.lastUserEvent = "";
+        this.blockWrapState = null;
         pendingDownFromWrapPos = null;
         return;
       }
@@ -2254,13 +2220,13 @@ export default class VisibleCursorPlugin extends Plugin {
         )
       ) {
         debugNav("navCorrection:end-move", {
-          consumedKey: plugin.lastKey,
+          consumedKey: this.lastKey,
           oldHead: oldSel.head,
           newHead: pos,
         });
-        plugin.lastKey = "";
-        plugin.lastUserEvent = "end";
-        plugin.blockWrapState = null;
+        this.lastKey = "";
+        this.lastUserEvent = "end";
+        this.blockWrapState = null;
         pendingDownFromWrapPos = null;
         if (pos > currentLine.from && isSoftWrap(update.view, pos)) {
           update.view.dispatch({
@@ -2280,13 +2246,13 @@ export default class VisibleCursorPlugin extends Plugin {
       // lastUserEvent regardless of jump size.
       if (update.transactions.some((t) => t.isUserEvent("emacs.moveToBeginning"))) {
         debugNav("navCorrection:home-move", {
-          consumedKey: plugin.lastKey,
+          consumedKey: this.lastKey,
           oldHead: oldSel.head,
           newHead: pos,
         });
-        plugin.lastKey = "";
-        plugin.lastUserEvent = "home";
-        plugin.blockWrapState = null;
+        this.lastKey = "";
+        this.lastUserEvent = "home";
+        this.blockWrapState = null;
         pendingDownFromWrapPos = null;
         return;
       }
@@ -2305,7 +2271,7 @@ export default class VisibleCursorPlugin extends Plugin {
       // 1. Handle moving FORWARD by 1 char from a wrap boundary (e.g. Emacs forward char after End key)
       if (!isEmacsVerticalMove && isSameLine && pos - oldSel.head === 1) {
         if (isSoftWrap(update.view, pos)) {
-          plugin.blockWrapState = { logicalPos: pos, showPos: pos, assoc: 1 };
+          this.blockWrapState = { logicalPos: pos, showPos: pos, assoc: 1 };
           pendingDownFromWrapPos = pos;
           update.view.dispatch({
             selection: EditorSelection.cursor(pos, 1),
@@ -2316,7 +2282,7 @@ export default class VisibleCursorPlugin extends Plugin {
           return;
         }
         if (isSoftWrap(update.view, oldSel.head) && oldSel.assoc === -1) {
-          plugin.blockWrapState = {
+          this.blockWrapState = {
             logicalPos: oldSel.head,
             showPos: oldSel.head,
             assoc: 1,
@@ -2340,7 +2306,7 @@ export default class VisibleCursorPlugin extends Plugin {
         isSoftWrap(update.view, pos) &&
         sel.assoc !== 1
       ) {
-        plugin.blockWrapState = { logicalPos: pos, showPos: pos, assoc: 1 };
+        this.blockWrapState = { logicalPos: pos, showPos: pos, assoc: 1 };
         pendingDownFromWrapPos = pos;
         update.view.dispatch({
           selection: EditorSelection.cursor(pos, 1),
@@ -2358,8 +2324,8 @@ export default class VisibleCursorPlugin extends Plugin {
         // Consuming here prevents stale 'End'/'Home' values from suppressing
         // wrap corrections in later, unrelated navigation events (e.g. after the
         // editor loses and regains focus, or after keydowns in other editor panes).
-        const consumedKey = plugin.lastKey;
-        plugin.lastKey = "";
+        const consumedKey = this.lastKey;
+        this.lastKey = "";
         debugNav("navCorrection:largeMove", {
           oldHead: oldSel.head,
           newHead: pos,
@@ -2390,8 +2356,8 @@ export default class VisibleCursorPlugin extends Plugin {
             oldHead: oldSel.head,
             newHead: pos,
           });
-          plugin.blockWrapState = null;
-          plugin.lastUserEvent = "end";
+          this.blockWrapState = null;
+          this.lastUserEvent = "end";
           pendingDownFromWrapPos = null;
           if (pos > currentLine.from && isSoftWrap(update.view, pos)) {
             update.view.dispatch({
@@ -2414,8 +2380,8 @@ export default class VisibleCursorPlugin extends Plugin {
           // Record event for buildMeasureReq to use as a rendering-only
           // assoc override (avoids dispatching from an updateListener, which
           // caused side-effects on pendingDownFromWrapPos / End key).
-          plugin.lastUserEvent = "home";
-          plugin.blockWrapState = null;
+          this.lastUserEvent = "home";
+          this.blockWrapState = null;
           pendingDownFromWrapPos = null;
           return;
         }
@@ -2429,7 +2395,7 @@ export default class VisibleCursorPlugin extends Plugin {
             : oldSel.assoc || -1;
         const oldCoords = update.view.coordsAtPos(
           oldSel.head,
-          oldAssoc as 1 | -1,
+          oldAssoc,
         );
         const newCoords = update.view.coordsAtPos(pos, sel.assoc || -1);
 
@@ -2475,7 +2441,7 @@ export default class VisibleCursorPlugin extends Plugin {
             isSoftWrap(update.view, pos) &&
             sel.assoc !== 1
           ) {
-            plugin.blockWrapState = { logicalPos: pos, showPos: pos, assoc: 1 };
+            this.blockWrapState = { logicalPos: pos, showPos: pos, assoc: 1 };
             pendingDownFromWrapPos = pos;
             update.view.dispatch({
               selection: EditorSelection.cursor(pos, 1),
@@ -2498,7 +2464,7 @@ export default class VisibleCursorPlugin extends Plugin {
                 oldSel.head,
               );
               if (target) {
-                plugin.blockWrapState = {
+                this.blockWrapState = {
                   logicalPos: target.pos,
                   showPos: target.pos,
                   assoc: 1,
@@ -2526,7 +2492,7 @@ export default class VisibleCursorPlugin extends Plugin {
               );
               if (target) {
                 if (target.isSoftWrap) {
-                  plugin.blockWrapState = {
+                  this.blockWrapState = {
                     logicalPos: target.pos,
                     showPos: target.pos,
                     assoc: 1,
@@ -2554,7 +2520,7 @@ export default class VisibleCursorPlugin extends Plugin {
                 oldSel.head,
               );
               if (target) {
-                plugin.blockWrapState = {
+                this.blockWrapState = {
                   logicalPos: target.pos,
                   showPos: target.pos,
                   assoc: 1,
@@ -2575,7 +2541,7 @@ export default class VisibleCursorPlugin extends Plugin {
       }
     
       } catch (err) {
-        plugin.recoverFromFreeze(update.view, "navCorrection_error", err);
+        this.recoverFromFreeze(update.view, "navCorrection_error", err);
       }
     });
 
@@ -2638,7 +2604,7 @@ export default class VisibleCursorPlugin extends Plugin {
    */
   private getCMView(markdownView: MarkdownView): EditorView | null {
     if (!markdownView.editor) return null;
-    return ((markdownView.editor as any).cm as EditorView) ?? null;
+    return (markdownView.editor as unknown as { cm?: EditorView }).cm ?? null;
   }
 
   /**
@@ -2799,7 +2765,13 @@ export default class VisibleCursorPlugin extends Plugin {
   }
 
   isEmacsPluginInstalled(): boolean {
-    const plugins = (this.app as any)?.plugins;
+    const plugins = (this.app as typeof this.app & {
+      plugins?: {
+        getPlugin?: (id: string) => unknown;
+        plugins?: Record<string, unknown>;
+        enabledPlugins?: { has: (id: string) => boolean };
+      };
+    }).plugins;
     if (!plugins) return false;
     return !!(
       plugins.getPlugin?.("emacs-text-editor") ||
@@ -2812,7 +2784,12 @@ export default class VisibleCursorPlugin extends Plugin {
     commandId: string,
     defaultHotkeys: { modifiers: string[]; key: string }[]
   ): { modifiers: string[]; key: string }[] {
-    const hotkeyManager = (this.app as any)?.hotkeyManager;
+    const hotkeyManager = (this.app as typeof this.app & {
+      hotkeyManager?: {
+        getHotkeys?: (commandId: string) => { modifiers: string[]; key: string }[] | undefined | null;
+        getDefaultHotkeys?: (commandId: string) => { modifiers: string[]; key: string }[] | undefined | null;
+      };
+    }).hotkeyManager;
     if (!hotkeyManager) return defaultHotkeys;
 
     const custom = hotkeyManager.getHotkeys?.(commandId);

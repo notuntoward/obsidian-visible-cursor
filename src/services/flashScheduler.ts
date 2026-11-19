@@ -71,7 +71,7 @@ export class FlashScheduler {
    */
   scheduleCallback(callback: () => void, delayMs: number, win?: Window): number {
     const targetWin = win ?? activeWindow ?? window;
-    return targetWin.setTimeout(callback, delayMs) as unknown as number;
+    return targetWin.setTimeout(callback, delayMs);
   }
 
   /**
@@ -85,6 +85,6 @@ export class FlashScheduler {
    */
   scheduleReset(callback: () => void, delayMs: number, win?: Window): number {
     const targetWin = win ?? activeWindow ?? window;
-    return targetWin.setTimeout(callback, delayMs) as unknown as number;
+    return targetWin.setTimeout(callback, delayMs);
   }
 }

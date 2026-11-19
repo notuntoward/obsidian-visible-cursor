@@ -42,6 +42,46 @@
   border: none !important;
 }
 
+.visible-cursor-custom-layer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+  overflow: visible;
+}
+
+.visible-cursor-custom-layer.is-hidden {
+  display: none;
+}
+
+.visible-cursor-element {
+  position: absolute;
+}
+
+.visible-cursor-element--bar {
+  width: 3px;
+  margin-left: -1px;
+}
+
+.visible-cursor-element--thinbar {
+  width: 2px;
+}
+
+.visible-cursor-element--block {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  overflow: hidden;
+  white-space: pre;
+  opacity: 1;
+  mix-blend-mode: normal;
+  tab-size: inherit;
+}
+
+.visible-cursor-color-resolver {
+  display: none;
+}
+
 /* Hierarchical indentation and grayed out states for settings tab */
 .visible-cursor-settings .visible-cursor-indent {
   margin-left: 1.5em;

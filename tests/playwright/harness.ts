@@ -5,12 +5,20 @@ import VisibleCursorPlugin, { CustomCursorViewPlugin } from '../../main';
 import { DEFAULT_SETTINGS, type VisibleCursorPluginSettings } from '../../settings';
 import { ColorProvider } from '../../src/services/colorProvider';
 import type { VisibleCursorHarness } from './harnessTypes';
+import '../../styles.css';
 
 if (typeof (window as any).activeDocument === 'undefined') {
 	(window as any).activeDocument = document;
 }
 if (typeof (window as any).activeWindow === 'undefined') {
 	(window as any).activeWindow = window;
+}
+if (typeof HTMLElement.prototype.setCssProps !== 'function') {
+	HTMLElement.prototype.setCssProps = function (props: Record<string, string>): void {
+		for (const [name, value] of Object.entries(props)) {
+			this.style.setProperty(name, value);
+		}
+	};
 }
 
 document.body.classList.add('theme-dark');

@@ -1,7 +1,6 @@
 import type { VisibleCursorPluginSettings } from '../../settings';
 import {
   hexToRgb,
-  getRelativeLuminance,
   getContrastRatio,
 } from '../utils';
 
@@ -61,7 +60,8 @@ export class ColorProvider {
     // For color-mix, var(), or other CSS functions, use a temporary element
     try {
       const temp = activeDocument.createElement('div');
-      temp.style.cssText = `color: ${color}; display: none;`;
+      temp.className = "visible-cursor-color-resolver";
+      temp.setCssProps({ color });
       activeDocument.body.appendChild(temp);
       const computed = getComputedStyle(temp).color;
       activeDocument.body.removeChild(temp);
@@ -77,7 +77,7 @@ export class ColorProvider {
         this.colorCache.set(color, rgb);
         return rgb;
       }
-    } catch (e) {
+    } catch (_e) {
       // Fall through to default
     }
 
@@ -99,8 +99,8 @@ export class ColorProvider {
       this.themeColorsCache.textOnAccent = computedStyle.getPropertyValue('--text-on-accent').trim();
     }
 
-    const bgColor = this.themeColorsCache.bg!;
-    const textColor = this.themeColorsCache.text!;
+    const bgColor = this.themeColorsCache.bg ?? '#ffffff';
+    const textColor = this.themeColorsCache.text ?? '#000000';
     const textOnAccent = this.themeColorsCache.textOnAccent;
 
     // Resolve the cursor background color to RGB for contrast calculation
@@ -146,7 +146,7 @@ export class ColorProvider {
           bestColor = candidate.color;
           bestPriority = candidate.priority;
         }
-      } catch (e) {
+      } catch (_e) {
         // Skip invalid colors
       }
     }

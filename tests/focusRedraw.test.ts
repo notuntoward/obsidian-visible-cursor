@@ -92,6 +92,8 @@ describe('CustomCursorViewPlugin block outline', () => {
 			request.write(measure);
 			expect(cursor?.style.outline).toBe('');
 			expect(cursor?.style.outlineOffset).toBe('');
+			expect(cursor?.style.width).toBe(barStyle === 'bar' ? '3px' : '2px');
+			expect(cursor?.className).toContain(`visible-cursor-element--${barStyle}`);
 		}
 	});
 });

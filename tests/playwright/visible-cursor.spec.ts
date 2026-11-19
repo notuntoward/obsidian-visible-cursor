@@ -197,6 +197,20 @@ test('adaptive outline samples the cursor owner document after moving to another
 		frame.style.cssText = 'width:800px;height:300px';
 		document.body.appendChild(frame);
 		const doc = frame.contentDocument!;
+		const frameWindow = frame.contentWindow as Window & typeof globalThis;
+		frameWindow.HTMLElement.prototype.setCssProps = HTMLElement.prototype.setCssProps;
+		for (const style of Array.from(document.head.querySelectorAll('style'))) {
+			doc.head.appendChild(style.cloneNode(true));
+		}
+		for (const stylesheet of Array.from(document.styleSheets)) {
+			try {
+				const copiedStyle = doc.createElement('style');
+				copiedStyle.textContent = Array.from(stylesheet.cssRules, rule => rule.cssText).join('\n');
+				doc.head.appendChild(copiedStyle);
+			} catch {
+				// Cross-origin sheets cannot be copied into the synthetic pop-out.
+			}
+		}
 		doc.body.style.setProperty('--background-primary', '#d8ccff');
 		doc.body.style.backgroundColor = '#d8ccff';
 		const view = h.getView() as import('@codemirror/view').EditorView;

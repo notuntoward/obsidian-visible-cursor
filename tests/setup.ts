@@ -38,6 +38,12 @@ if (typeof global !== 'undefined' && !global.document) {
 					cssText: '',
 					setProperty: () => {}
 				},
+				setCssProps: (props: Record<string, string>) => {
+					for (const [name, value] of Object.entries(props)) {
+						const property = name.replace(/-([a-z])/g, (_, letter: string) => letter.toUpperCase());
+						(el.style as unknown as Record<string, string>)[property] = value;
+					}
+				},
 				setAttribute: () => {},
 				getAttribute: () => null,
 				remove: () => {},
