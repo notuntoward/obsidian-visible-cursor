@@ -1,3 +1,5 @@
+export { getAllTags, setIcon, TFile } from 'commons/testing/obsidian-mock';
+
 export class App {}
 
 export class Plugin {
