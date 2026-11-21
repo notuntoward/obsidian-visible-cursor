@@ -1,8 +1,9 @@
 import { EditorSelection, EditorState, StateEffect, Transaction } from '@codemirror/state';
 import { Decoration, EditorView, ViewPlugin, drawSelection } from '@codemirror/view';
 import type { Extension } from '@codemirror/state';
+import { createLineFlashSettingsGroup } from 'commons/flash';
 import VisibleCursorPlugin, { CustomCursorViewPlugin } from '../../main';
-import { DEFAULT_SETTINGS, type VisibleCursorPluginSettings } from '../../settings';
+import { DEFAULT_SETTINGS, VisibleCursorSettingTab, type VisibleCursorPluginSettings } from '../../settings';
 import { ColorProvider } from '../../src/services/colorProvider';
 import type { VisibleCursorHarness } from './harnessTypes';
 import '../../styles.css';
@@ -98,6 +99,18 @@ function rectForSelector(selector: string): { top: number; left: number; width: 
 }
 
 const harness: VisibleCursorHarness = {
+	getSettingsGroupClasses() {
+		createLineFlashSettingsGroup({
+			heading: 'Flash',
+			mode: { key: 'mode' },
+			duration: { key: 'duration' },
+			size: { key: 'size' },
+		}, document);
+		const tab = new VisibleCursorSettingTab({} as never, pluginStub as never);
+		return tab.getSettingDefinitions()
+			.filter((item) => 'type' in item && item.type === 'group')
+			.map((group) => 'cls' in group ? group.cls ?? '' : '');
+	},
 	setDoc(doc: string, cursorPos = 0) {
 		replaceView(doc, cursorPos);
 	},

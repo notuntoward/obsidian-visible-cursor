@@ -82,6 +82,11 @@
   display: none;
 }
 
+.visible-cursor-appearance .setting-item:not(.mod-toggle) .setting-item-control select {
+  width: auto;
+  max-width: 100%;
+}
+
 /* Hierarchical indentation and grayed out states for settings tab */
 .visible-cursor-settings .visible-cursor-indent {
   margin-left: 1.5em;

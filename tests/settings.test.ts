@@ -95,6 +95,10 @@ describe('VisibleCursorSettingTab', () => {
 			{ settings } as never,
 		);
 		const definitions = tab.getSettingDefinitions();
+		const appearance = definitions.find((item): item is SettingDefinitionGroup =>
+			'type' in item && item.type === 'group' && item.heading === 'Cursor Appearance'
+		);
+		expect(appearance?.cls).toBe('visible-cursor-appearance');
 		const flash = definitions.find((item): item is SettingDefinitionGroup =>
 			'type' in item && item.type === 'group' && item.heading === 'Flash Effect'
 		);
@@ -103,7 +107,7 @@ describe('VisibleCursorSettingTab', () => {
 
 		expect(flash.cls).toBe(LINE_FLASH_SETTINGS_CLASS);
 		expect(flash.items.map((item) => 'name' in item ? item.name : '')).toEqual([
-			'Direction',
+			'Flash Style',
 			'Duration',
 			'Width',
 			'Colors',

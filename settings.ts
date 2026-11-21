@@ -48,6 +48,7 @@ export class VisibleCursorSettingTab extends PluginSettingTab {
 			{
 				type: 'group',
 				heading: 'Cursor Appearance',
+				cls: 'visible-cursor-appearance',
 				items: [
 					{
 						name: 'Show custom cursor',

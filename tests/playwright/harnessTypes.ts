@@ -5,6 +5,7 @@ export type HarnessRect = {
 	height: number;
 };
 export type VisibleCursorHarness = {
+	getSettingsGroupClasses: () => string[];
 	setDoc: (doc: string, cursorPos?: number) => void;
 	setCursor: (pos: number) => void;
 	setHighlight: (from: number, to: number, background: string, pointerEvents?: string) => void;
