@@ -1,6 +1,6 @@
 import { App, PluginSettingTab, SettingDefinitionItem } from 'obsidian';
 
-import { formatFlashDuration, formatFlashSize, LINE_FLASH_DURATION, LINE_FLASH_MODE_LABELS, LINE_FLASH_SIZE } from 'commons/flash';
+import { createLineFlashSettingsGroup, LINE_FLASH_DEFAULT_PROFILE } from 'commons/flash';
 
 import VisibleCursorPlugin from './main';
 
@@ -21,14 +21,14 @@ export interface VisibleCursorPluginSettings {
 export const DEFAULT_SETTINGS: VisibleCursorPluginSettings = {
 	customCursorMode: 'always',
 	customCursorStyle: 'block',
-	lineHighlightMode: 'centered',
+	lineHighlightMode: LINE_FLASH_DEFAULT_PROFILE.mode,
 	cursorCustomColorLight: '#6496ff',
 	cursorCustomColorDark: '#6496ff',
-	flashDuration: LINE_FLASH_DURATION.default,
+	flashDuration: LINE_FLASH_DEFAULT_PROFILE.durationMs,
 	useThemeColors: true,
 	flashOnWindowScrolls: true,
 	flashOnWindowChanges: true,
-	flashSize: LINE_FLASH_SIZE.default,
+	flashSize: LINE_FLASH_DEFAULT_PROFILE.sizeChars,
 	flashOnRepeatEnd: false
 };
 
@@ -74,50 +74,42 @@ export class VisibleCursorSettingTab extends PluginSettingTab {
 					}
 				]
 			},
-			{
-				type: 'group',
+			createLineFlashSettingsGroup({
 				heading: 'Flash Effect',
-				items: [
-					{
-						name: 'Line highlight',
-						desc: 'Show a gradient highlight on the current line during a flash',
-						control: {
-							type: 'dropdown',
-							key: 'lineHighlightMode',
-							options: {
-								off: 'Off',
-								...LINE_FLASH_MODE_LABELS
-							}
-						}
+				mode: {
+					key: 'lineHighlightMode',
+					aliases: ['Line highlight'],
+					desc: 'Show a gradient highlight on the current line during a flash.',
+				},
+				duration: {
+					key: 'flashDuration',
+					aliases: ['Flash duration'],
+					desc: "How long the flash lasts, including an 'Only during flash' cursor.",
+					disabled: () => !isFlashActive(),
+				},
+				size: {
+					key: 'flashSize',
+					aliases: ['Flash size'],
+					desc: 'Width of the bright part of the line flash.',
+					disabled: () => isLineHighlightOff(),
+				},
+				colors: {
+					aliases: ['Use theme colors', 'Cursor colors', 'Line flash colors'],
+					desc: "Use the theme accent for the cursor and line flash, or choose separate light- and dark-theme colors.",
+					useTheme: {
+						get: () => s.useThemeColors,
+						set: (value) => this.setControlValue('useThemeColors', value),
 					},
-					{
-						name: 'Flash duration',
-						desc: "How long the flash lasts (applies to line highlight and 'Only during flash' cursor)",
-						control: {
-							type: 'slider',
-							key: 'flashDuration',
-							min: LINE_FLASH_DURATION.min,
-							max: LINE_FLASH_DURATION.max,
-							step: LINE_FLASH_DURATION.step,
-							disabled: () => !isFlashActive(),
-							displayFormat: formatFlashDuration
-						}
+					light: {
+						get: () => s.cursorCustomColorLight,
+						set: (value) => this.setControlValue('cursorCustomColorLight', value),
 					},
-					{
-						name: 'Flash size',
-						desc: 'Width of the flash (4-30 characters)',
-						control: {
-							type: 'slider',
-							key: 'flashSize',
-							min: LINE_FLASH_SIZE.min,
-							max: LINE_FLASH_SIZE.max,
-							step: LINE_FLASH_SIZE.step,
-							disabled: () => isLineHighlightOff(),
-							displayFormat: formatFlashSize
-						}
-					}
-				]
-			},
+					dark: {
+						get: () => s.cursorCustomColorDark,
+						set: (value) => this.setControlValue('cursorCustomColorDark', value),
+					},
+				},
+			}, this.containerEl?.ownerDocument),
 			{
 				type: 'group',
 				heading: 'Flash Triggers',
@@ -150,38 +142,6 @@ export class VisibleCursorSettingTab extends PluginSettingTab {
 						}
 					}
 				]
-			},
-			{
-				type: 'group',
-				heading: 'Colors',
-				items: [
-					{
-						name: 'Use theme colors',
-						desc: "Use theme's accent color. Turn off to pick custom colors.",
-						control: {
-							type: 'toggle',
-							key: 'useThemeColors'
-						}
-					},
-					{
-						name: 'Light theme color',
-						desc: 'Color for light theme',
-						control: {
-							type: 'color',
-							key: 'cursorCustomColorLight',
-							disabled: () => s.useThemeColors
-						}
-					},
-					{
-						name: 'Dark theme color',
-						desc: 'Color for dark theme',
-						control: {
-							type: 'color',
-							key: 'cursorCustomColorDark',
-							disabled: () => s.useThemeColors
-						}
-					}
-				]
 			}
 		];
 	}
@@ -196,6 +156,6 @@ export class VisibleCursorSettingTab extends PluginSettingTab {
 		if (['customCursorMode', 'customCursorStyle', 'useThemeColors', 'cursorCustomColorLight', 'cursorCustomColorDark'].includes(key)) {
 			this.plugin.refreshDecorations();
 		}
-		this.update();
+		this.refreshDomState();
 	}
 }

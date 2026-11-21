@@ -89,23 +89,34 @@ For development diagnostics, set `app.plugins.plugins['visible-cursor'].debugAda
 
 <!-- ![Flash Settings](screenshots/settings-flash.png) -->
 
-Line flashes use the bundled `commons/flash` renderer also used by Perplexity
+Line flashes use the bundled `commons/flash` renderer and compact settings
+layout also used by Perplexity
 Saver. Styles and cleanup belong to the editor's own window, including pop-outs.
 Flashes in the same scroller replace one another rather than stacking. Movement
 triggers and character cursor decoration remain controlled by this plugin;
 commons does not need to be installed as a separate Obsidian plugin.
 
-**Line highlight** (default: centered)
+**Direction** (default: centered around the cursor)
 - "Left to right" for left-to-right fade
 - "Centered around cursor" for cursor-focused highlighting
 - "Right to left" for right-to-left fade
 - "Off" for character decoration only
 
-**Flash duration** (default: 1s)
+**Duration** (default: 1s)
 - Control how long the flash effect lasts (0.2s - 1.5s)
 
-**Flash size** (default: 15 characters)
+**Width** (default: 15 characters)
 - Adjust the width of the line highlight (4-30 characters)
+
+**Colors** use the same compact one-line control as Perplexity Saver:
+- Toggle **Use theme** off to edit separate light- and dark-theme colors.
+- While it is on, the saved custom swatches remain visible but dimmed and
+  disabled, rather than looking like active choices.
+- These colors control both the custom cursor and line flash.
+
+All flash controls start from one left edge. The direction selector sizes to its
+content and the sliders remain compact rather than stretching across the
+settings pane.
 
 ### Flash Triggers
 
@@ -119,7 +130,7 @@ commons does not need to be installed as a separate Obsidian plugin.
 
 **On navigation repeat end** (default: OFF)
 - Show flash at the end of a keyboard repeat sequence (holding movement keys) if a large cursor movement occurred.
-### Colors
+### Color behavior
 
 <!-- ![Color Settings](screenshots/settings-colors.png) -->
 
@@ -128,6 +139,10 @@ commons does not need to be installed as a separate Obsidian plugin.
 - Matches your Obsidian theme accent color
 - Updates automatically when theme changes
 - Turn off for manual light/dark control
+
+The shared row belongs to **Flash Effect**, but the color storage remains local
+to Visible Cursor because the values also control the visible cursor itself.
+Perplexity Saver's flash retains its own independent theme/light/dark settings.
 
 ## Acknowledgements
 - The [Emacs beacon package](https://github.com/Malabarba/beacon) that showed me the way.
