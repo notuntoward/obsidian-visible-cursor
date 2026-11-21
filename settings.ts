@@ -96,6 +96,7 @@ export class VisibleCursorSettingTab extends PluginSettingTab {
 				colors: {
 					aliases: ['Use theme colors', 'Cursor colors', 'Line flash colors'],
 					desc: "Use the theme accent for the cursor and line flash, or choose separate light- and dark-theme colors.",
+					themeFlash: () => this.plugin.colorProvider.getColor({ ...s, useThemeColors: true }),
 					useTheme: {
 						get: () => s.useThemeColors,
 						set: (value) => this.setControlValue('useThemeColors', value),
@@ -156,6 +157,7 @@ export class VisibleCursorSettingTab extends PluginSettingTab {
 		if (['customCursorMode', 'customCursorStyle', 'useThemeColors', 'cursorCustomColorLight', 'cursorCustomColorDark'].includes(key)) {
 			this.plugin.refreshDecorations();
 		}
+		if (key === 'customCursorStyle') this.update();
 		this.refreshDomState();
 	}
 }

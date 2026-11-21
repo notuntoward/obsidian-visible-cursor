@@ -1343,7 +1343,8 @@ export default class VisibleCursorPlugin extends Plugin {
     this.colorProvider = new ColorProvider();
     this.flashScheduler = new FlashScheduler();
 
-    this.addSettingTab(new VisibleCursorSettingTab(this.app, this));
+    const settingTab = new VisibleCursorSettingTab(this.app, this);
+    this.addSettingTab(settingTab);
 
     // Register editor extensions:
     // 1. CustomCursorViewPlugin — codemirror-emacs BlockCursorPlugin pattern
@@ -1389,6 +1390,7 @@ export default class VisibleCursorPlugin extends Plugin {
         this.outlineThemeVersion++;
         this.app.workspace.updateOptions();
         this.colorProvider.clearCache();
+        settingTab.update();
         const activeLeaf = this.getActiveLeafInFocusedWindow();
         const win = (activeLeaf ? getWindowForLeaf(activeLeaf) : null) ?? getMainWindow(this.app) ?? window;
         requestFrameIn(win, () => this.refreshDecorations());

@@ -2,16 +2,21 @@ import { describe, it, expect, vi } from 'vitest';
 
 vi.mock('obsidian', () => ({
 	App: class App {},
-	PluginSettingTab: class PluginSettingTab {},
+	PluginSettingTab: class PluginSettingTab { update() {} refreshDomState() {} },
 	Setting: class Setting {}
 }));
+
+vi.mock('commons/flash', async (importOriginal) => {
+	const actual = await importOriginal<typeof import('commons/flash')>();
+	return { ...actual, createLineFlashSettingsGroup: vi.fn(actual.createLineFlashSettingsGroup) };
+});
 
 vi.mock('../main', () => ({
 	default: class VisibleCursorPluginMock {}
 }));
 
 import { DEFAULT_SETTINGS } from '../settings';
-import { LINE_FLASH_SETTINGS_CLASS } from 'commons/flash';
+import { createLineFlashSettingsGroup, LINE_FLASH_SETTINGS_CLASS } from 'commons/flash';
 import { VisibleCursorSettingTab } from '../settings';
 import type { VisibleCursorPluginSettings } from '../settings';
 import type { SettingDefinitionGroup } from 'obsidian';
@@ -60,6 +65,29 @@ describe('DEFAULT_SETTINGS', () => {
 });
 
 describe('VisibleCursorSettingTab', () => {
+	it('previews the same automatic color used by the cursor and line flash', () => {
+		const settings = { ...DEFAULT_SETTINGS, useThemeColors: false };
+		const getColor = vi.fn(() => ({ color: 'rgb(203, 197, 240)', opacity: 0.8 }));
+		const tab = new VisibleCursorSettingTab({} as never, { settings, colorProvider: { getColor } } as never);
+		tab.getSettingDefinitions();
+		const calls = vi.mocked(createLineFlashSettingsGroup).mock.calls;
+		const colors = calls[calls.length - 1]?.[0].colors;
+		expect(colors?.themeFlash?.()).toEqual({ color: 'rgb(203, 197, 240)', opacity: 0.8 });
+		expect(getColor).toHaveBeenCalledWith({ ...settings, useThemeColors: true });
+		expect(settings.useThemeColors).toBe(false);
+	});
+
+	it('refreshes automatic previews when cursor style changes', async () => {
+		const settings = { ...DEFAULT_SETTINGS };
+		const tab = new VisibleCursorSettingTab({} as never, {
+			settings, saveSettings: vi.fn(), refreshDecorations: vi.fn(),
+		} as never);
+		const update = vi.spyOn(tab, 'update');
+		await tab.setControlValue('customCursorStyle', 'bar');
+		expect(settings.customCursorStyle).toBe('bar');
+		expect(update).toHaveBeenCalledOnce();
+	});
+
 	it('uses one shared compact row for flash and cursor colors', () => {
 		const settings = { ...DEFAULT_SETTINGS };
 		const tab = new VisibleCursorSettingTab(
